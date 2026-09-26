@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #1a2b3c;
+  --muted: #5e7080;
+  --paper: #f4f7f5;
+  --wash: #e4ece7;
+  --line: #cfdad3;
+  --accent: #2f7a62;
+  --accent-soft: #d5ebe1;
+  --background: #c5d4ce;
+  --foreground: #1a2b3c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+}
+
+body {
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, #dce8e2 0%, transparent 55%),
+    radial-gradient(ellipse 70% 40% at 100% 0%, #d0ddd8 0%, transparent 50%),
+    linear-gradient(165deg, #c8d6d0 0%, #b7c8c2 45%, #aebfc4 100%);
+  color: var(--foreground);
+  font-family: var(--font-sans), "Apple SD Gothic Neo", sans-serif;
+  min-height: 100dvh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
