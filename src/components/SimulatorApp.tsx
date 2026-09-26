@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AddCharacterModal from "@/components/AddCharacterModal";
 import BottomNav from "@/components/BottomNav";
 import CharacterTab from "@/components/CharacterTab";
@@ -24,6 +24,14 @@ import {
 } from "@/data/dummy";
 import { generateLogFromCurrentProfile } from "@/lib/generateLogFromProfile";
 import { DEFAULT_OFFLINE_LOG_FREQUENCY } from "@/data/offlineLogSettings";
+import {
+  loadCharacterProfiles,
+  loadOfflineLogFrequency,
+  loadSelectedCharacterId,
+  saveCharacterProfiles,
+  saveOfflineLogFrequency,
+  saveSelectedCharacterId,
+} from "@/lib/persistence";
 import type {
   ActionLog,
   CharacterProfile,
@@ -52,6 +60,42 @@ export default function SimulatorApp() {
     useState<ScheduleItem[]>(initialSchedules);
   const [facilities, setFacilities] = useState<Facility[]>(initialFacilities);
   const [posts, setPosts] = useState<SnsPost[]>(initialSnsPosts);
+  /** LocalStorage 복원 완료 전엔 기본값으로 덮어쓰지 않음 */
+  const [storageReady, setStorageReady] = useState(false);
+
+  useEffect(() => {
+    const profiles = loadCharacterProfiles(initialCharacters);
+    const frequency = loadOfflineLogFrequency();
+    const selected = loadSelectedCharacterId(
+      profiles,
+      profiles[0]?.id ?? initialCharacters[0].id
+    );
+    setCharacters(profiles);
+    setOfflineFrequency(frequency);
+    setSelectedId(selected);
+    setStorageReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    saveOfflineLogFrequency(offlineFrequency);
+  }, [offlineFrequency, storageReady]);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    saveCharacterProfiles(characters);
+  }, [characters, storageReady]);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    saveSelectedCharacterId(selectedId);
+  }, [selectedId, storageReady]);
+
+  const handleOfflineFrequencyChange = (value: OfflineLogFrequency) => {
+    setOfflineFrequency(value);
+    // 즉시 저장 (effect와 중복이어도 안전)
+    saveOfflineLogFrequency(value);
+  };
 
   const selected =
     characters.find((c) => c.id === selectedId) ?? characters[0];
@@ -92,8 +136,8 @@ export default function SimulatorApp() {
   const updateCharacter = (patch: Partial<CharacterProfile>) => {
     const keys = Object.keys(patch);
     const vitalsOnly = keys.length === 1 && keys[0] === "vitals";
-    setCharacters((prev) =>
-      prev.map((c) =>
+    setCharacters((prev) => {
+      const next = prev.map((c) =>
         c.id === selectedId
           ? {
               ...c,
@@ -103,8 +147,10 @@ export default function SimulatorApp() {
                 : { profileUpdatedAt: new Date().toISOString() }),
             }
           : c
-      )
-    );
+      );
+      if (storageReady) saveCharacterProfiles(next);
+      return next;
+    });
   };
 
   /** 최신 currentProfile만으로 로그 1건 생성 (과거 로그 미참조) */
@@ -118,8 +164,8 @@ export default function SimulatorApp() {
     };
     const log = generateLogFromCurrentProfile(withStamp);
     setLogs((prev) => [log, ...prev]);
-    setCharacters((prev) =>
-      prev.map((c) =>
+    setCharacters((prev) => {
+      const next = prev.map((c) =>
         c.id === profile.id
           ? {
               ...c,
@@ -128,16 +174,20 @@ export default function SimulatorApp() {
               profileUpdatedAt: withStamp.profileUpdatedAt,
             }
           : c
-      )
-    );
+      );
+      if (storageReady) saveCharacterProfiles(next);
+      return next;
+    });
     setTab("timeline");
   };
 
   const handleAddCharacter = (name: string) => {
     const newbie = createBlankCharacter(name, characters);
-    setCharacters((prev) =>
-      withMutualRelationships([...prev, newbie], newbie)
-    );
+    setCharacters((prev) => {
+      const next = withMutualRelationships([...prev, newbie], newbie);
+      if (storageReady) saveCharacterProfiles(next);
+      return next;
+    });
     setSelectedId(newbie.id);
     setTab("character");
   };
@@ -289,7 +339,7 @@ export default function SimulatorApp() {
         <OfflineLogSettingsPanel
           value={offlineFrequency}
           characterCount={characters.length}
-          onChange={setOfflineFrequency}
+          onChange={handleOfflineFrequencyChange}
           onClose={() => setOfflineSettingsOpen(false)}
         />
       )}
