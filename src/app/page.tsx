@@ -1,5 +1,5 @@
-import SimulatorApp from "@/components/SimulatorApp";
+import ClientSimulatorApp from "@/components/ClientSimulatorApp";
 
 export default function Home() {
-  return <SimulatorApp />;
+  return <ClientSimulatorApp />;
 }

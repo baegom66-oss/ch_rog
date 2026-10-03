@@ -3,7 +3,8 @@
 import { Compass, MapPin, Plus, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 import FieldHint from "@/components/FieldHint";
-import { MOBILITY_PATTERN_PRESETS } from "@/data/relationshipPresets";
+import { MOBILITY_PATTERN_PRESETS } from "@/data/profileOptions";
+import { isSubmitEnter } from "@/lib/keyboard";
 import type { LocationPreferences } from "@/types";
 
 interface LocationPrefsPanelProps {
@@ -56,13 +57,52 @@ function PlaceChipList({
   );
 }
 
+function PlaceInput({
+  placeholder,
+  onAdd,
+}: {
+  placeholder: string;
+  onAdd: (place: string) => void;
+}) {
+  const [value, setValue] = useState("");
+
+  const submit = () => {
+    onAdd(value);
+    setValue("");
+  };
+
+  return (
+    <div className="mt-2 flex gap-2">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (isSubmitEnter(e)) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder={placeholder}
+        className="w-full rounded-xl border border-[var(--line)] bg-[var(--wash)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+      />
+      <button
+        type="button"
+        onClick={submit}
+        className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[var(--wash)] px-3 text-xs hover:bg-[var(--line)]"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        추가
+      </button>
+    </div>
+  );
+}
+
 export default function LocationPrefsPanel({
   prefs,
   onChange,
 }: LocationPrefsPanelProps) {
   const [editing, setEditing] = useState(false);
-  const [hangoutInput, setHangoutInput] = useState("");
-  const [interestInput, setInterestInput] = useState("");
 
   const addPlace = (kind: "hangouts" | "interested", value: string) => {
     const trimmed = value.trim();
@@ -111,33 +151,10 @@ export default function LocationPrefsPanel({
             onRemove={(p) => removePlace("hangouts", p)}
           />
           {editing && (
-            <div className="mt-2 flex gap-2">
-              <input
-                type="text"
-                value={hangoutInput}
-                onChange={(e) => setHangoutInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addPlace("hangouts", hangoutInput);
-                    setHangoutInput("");
-                  }
-                }}
-                placeholder="장소 추가 후 Enter"
-                className="w-full rounded-xl border border-[var(--line)] bg-[var(--wash)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  addPlace("hangouts", hangoutInput);
-                  setHangoutInput("");
-                }}
-                className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[var(--wash)] px-3 text-xs hover:bg-[var(--line)]"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                추가
-              </button>
-            </div>
+            <PlaceInput
+              placeholder="장소 추가 후 Enter"
+              onAdd={(p) => addPlace("hangouts", p)}
+            />
           )}
         </div>
 
@@ -154,33 +171,10 @@ export default function LocationPrefsPanel({
             onRemove={(p) => removePlace("interested", p)}
           />
           {editing && (
-            <div className="mt-2 flex gap-2">
-              <input
-                type="text"
-                value={interestInput}
-                onChange={(e) => setInterestInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addPlace("interested", interestInput);
-                    setInterestInput("");
-                  }
-                }}
-                placeholder="관심 장소 추가"
-                className="w-full rounded-xl border border-[var(--line)] bg-[var(--wash)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  addPlace("interested", interestInput);
-                  setInterestInput("");
-                }}
-                className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[var(--wash)] px-3 text-xs hover:bg-[var(--line)]"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                추가
-              </button>
-            </div>
+            <PlaceInput
+              placeholder="관심 장소 추가"
+              onAdd={(p) => addPlace("interested", p)}
+            />
           )}
         </div>
 
@@ -201,7 +195,7 @@ export default function LocationPrefsPanel({
                     }
                     className={`rounded-full px-2.5 py-1 text-[11px] transition ${
                       prefs.mobilityPattern === pattern
-                        ? "bg-[var(--ink)] text-white"
+                        ? "bg-[var(--accent)] text-white"
                         : "bg-[var(--wash)] text-[var(--muted)] hover:bg-[var(--line)]"
                     }`}
                   >
@@ -220,7 +214,7 @@ export default function LocationPrefsPanel({
               />
             </div>
           ) : (
-            <span className="inline-flex rounded-full bg-[var(--ink)] px-3 py-1 text-[11px] font-medium text-white">
+            <span className="inline-flex rounded-full bg-[var(--accent)] px-3 py-1 text-[11px] font-medium text-white">
               {prefs.mobilityPattern || "미설정"}
             </span>
           )}

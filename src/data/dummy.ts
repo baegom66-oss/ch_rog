@@ -1,3 +1,4 @@
+import { DEFAULT_WORLD_ID } from "@/data/worlds";
 import type {
   ActionLog,
   CharacterProfile,
@@ -7,15 +8,24 @@ import type {
 } from "@/types";
 
 export const FAVORITE_SLOT_MAX = 20;
+/** 타임라인 로그 최대 보관 수 (전체 세계 합산, 보관함 로그 포함) */
+export const FEED_LOG_LIMIT = 70;
+/** 캐릭터 1명당 SNS 게시물 최대 보관 수 (즐겨찾기 포함) */
+export const SNS_POST_LIMIT = 10;
+/** 캐릭터 1명당 SNS 즐겨찾기 최대 수. 가득 차면 새 게시물이 올라오지 않는다 */
+export const SNS_FAVORITE_MAX = 10;
+
+const KAZUKI_LUKA_STORY =
+  "달무리 카페 단골끼리 자주 마주치다가 루카가 먼저 말을 걸며 알게 됐다. 카즈키는 적당히 선을 긋지만, 루카는 꾸준히 다가오는 중.";
 
 export const initialCharacters: CharacterProfile[] = [
   {
     id: "kazuki",
+    worldId: DEFAULT_WORLD_ID,
     name: "카즈키",
     age: 22,
     gender: "남성",
     avatarUrl: "",
-    avatarEmoji: "🧵",
     avatarColor: "#3D6B5A",
     personality:
       "자기중심적이고 제멋대로처럼 보이지만, 사실은 챙김이 서툰 츤데레. 감정 표현은 짧고 건조하며, 관심은 행동으로만 드러낸다. 혼자만의 루틴을 깨는 걸 싫어한다.",
@@ -23,12 +33,40 @@ export const initialCharacters: CharacterProfile[] = [
       "\"…굳이?\" / \"알 바 아닌데.\" / \"네가 알아서 해.\" / (작게) \"…다 식기 전에 먹어.\" / \"그런 거 물어보지 마.\"",
     mbti: "ISTP",
     alignment: "혼돈 중립",
-    backstory:
-      "소도시에서 혼자 자취 중. 중학생 때 할머니에게 바느질을 배우며 '손으로 고치면 마음이 가라앉는다'는 걸 알게 됐다. 부모와의 대화는 항상 어긋났고, 그 뒤로 긴 설명보다 침묵을 택한다. 겉으로는 무심하지만, 상대가 진심을 보이면 슬쩍 챙기는 편이다.",
+    traits: {
+      sociability: 20,
+      imagination: 35,
+      empathy: 30,
+      planning: 40,
+      expressiveness: 15,
+      sensitivity: 75,
+      energy: 30,
+    },
+    sleep: {
+      bedtime: "02:00",
+      wakeTime: "10:00",
+      note: "영화를 보다 새벽에 잠드는 날이 많다. 알람을 세 개 맞춰도 마지막 것만 듣는다.",
+    },
+    spending: {
+      style: "취향 집중형",
+      note: "생활비는 아끼지만 빈티지 단추·원단엔 망설임 없이 쓴다. 디저트 값은 '필수 지출'로 분류.",
+    },
+    habits:
+      "생각할 때 실 끝을 손가락에 감는다. 대답하기 전에 꼭 한 박자 쉰다. 카페에선 항상 같은 창가 자리.",
+    backstory: {
+      upbringing:
+        "소도시의 맞벌이 가정에서 자라 집에 혼자 있는 시간이 길었다. 지금은 혼자 자취 중.",
+      turningPoints:
+        "중학생 때 할머니에게 바느질을 배우며 '손으로 고치면 마음이 가라앉는다'는 걸 알게 됐다.",
+      wounds:
+        "부모와의 대화는 항상 어긋났다. 진심을 길게 설명했다가 무시당한 뒤로 긴 설명보다 침묵을 택한다.",
+      motivation:
+        "망가진 걸 고쳐서 다시 쓰게 만드는 것. 언젠가 작은 수선 공방을 여는 게 막연한 꿈.",
+    },
     foodPreference:
       "초딩입맛 쪽. 달달한 디저트·따뜻한 라떼 선호. 매운 음식은 거의 못 먹음. 민트초코는 기피.",
-    likesDislikes:
-      "좋아함: 비 오는 날 창가, 헌책방, 손바느질, 사람 적은 카페 / 싫어함: 갑작스러운 스몰토크, 소음, 붐비는 피크 타임, 계획 없는 단체 약속",
+    likes: "비 오는 날 창가, 헌책방, 손바느질, 사람 적은 카페",
+    dislikes: "갑작스러운 스몰토크, 소음, 붐비는 피크 타임, 계획 없는 단체 약속",
     pets: "회색 고양이 '연탄' (주말마다 하룻밤 맡김)",
     subHobbies: [
       "손바느질 수선",
@@ -40,9 +78,11 @@ export const initialCharacters: CharacterProfile[] = [
     relationships: [
       {
         targetId: "luka",
+        type: "acquaintance",
         tag: "친한 지인",
         affinity: 72,
         impression: "같이 있으면 시끄럽지만 심심하진 않다. 굳이 피하진 않음.",
+        description: KAZUKI_LUKA_STORY,
       },
     ],
     locationPrefs: {
@@ -52,18 +92,29 @@ export const initialCharacters: CharacterProfile[] = [
     },
     currentLocation: "달무리 카페",
     currentAction: "창가에서 딸기 타르트를 음미하는 중",
-    vitals: { hunger: 35, fatigue: 48, social: 22, stress: 31 },
     secretDiary:
       "오늘은 카페 창가 자리를 또 찜했다. 옆 테이블에서 누군가 크게 웃을 때마다 귀가 간지러웠지만, 딸기 타르트가 달아서 참을 만했다. 루카가 또 SNS에 사진을 올렸더라. 댓글은 안 달았지만… 사진 속 케이크 플레이팅은 괜찮았다. 인정.",
-    wish: "집 근처에 조용한 북카페가 생기면 좋겠다. 바느질하다 책 읽다, 아무도 말을 걸지 않는 곳이.",
+    wishes: [
+      {
+        id: "wish-kazuki-bookcafe",
+        text: "집 근처에 조용한 북카페가 생기면 좋겠다. 바느질하다 책 읽다, 아무도 말을 걸지 않는 곳이.",
+        date: "",
+        kept: true,
+      },
+    ],
+    sns: {
+      followers: 128,
+      following: 12,
+      bio: "말 걸지 마세요. 바느질 중.\n🧵 수선 · 📚 헌책방 · 🐈‍⬛ 연탄 집사",
+    },
   },
   {
     id: "luka",
+    worldId: DEFAULT_WORLD_ID,
     name: "루카",
     age: 21,
     gender: "남성",
     avatarUrl: "",
-    avatarEmoji: "🌶️",
     avatarColor: "#C45C26",
     personality:
       "발랄하고 상냥하며 사람을 끌어모으는 타입. 분위기를 읽는 감각이 좋아 먼저 말을 건넨다. 겉으로는 밝지만, 혼자 있을 때는 깊이 고민하는 면이 있다.",
@@ -71,12 +122,41 @@ export const initialCharacters: CharacterProfile[] = [
       "\"야, 여기 진짜 맛있어!\" / \"같이 갈래? 거절해도 괜찮고~\" / \"오늘 해시태그 뭐 하지?\" / \"카즈키도 한입만… 안 되지? ㅎㅎ\" / \"괜찮아요, 천천히 와요.\"",
     mbti: "ENFJ",
     alignment: "질서 선",
-    backstory:
-      "동네 카페를 돌며 사장님 이름을 외우고, SNS에 추천 코스를 올리는 게 일상. 고등학교 때 '분위기 메이커' 역할에 익숙해졌고, 지금도 웃음을 먼저 보여주는 습관이 있다. 다만 정작 본인의 속마음은 피드에 잘 올리지 않는다.",
+    traits: {
+      sociability: 88,
+      imagination: 62,
+      empathy: 80,
+      planning: 58,
+      expressiveness: 70,
+      sensitivity: 60,
+      energy: 85,
+    },
+    sleep: {
+      bedtime: "00:30",
+      wakeTime: "07:30",
+      note: "아침 러닝을 하려고 일찍 일어나지만, 생각이 많은 날엔 새벽까지 뒤척인다.",
+    },
+    spending: {
+      style: "충동 구매형",
+      note: "신상 카페·한정 메뉴엔 바로 지갑이 열린다. 친구들 밥을 자주 사서 월말엔 늘 빠듯하다.",
+    },
+    habits:
+      "사진부터 찍고 먹는다. 말끝을 '~지?'로 올려 동의를 구한다. 어색하면 먼저 웃는다.",
+    backstory: {
+      upbringing:
+        "형제 많은 집의 막내. 늘 북적이는 집에서 자라 조용한 방이 오히려 낯설다.",
+      turningPoints:
+        "고등학교 때 '분위기 메이커' 역할을 맡으며 사람들 사이에서 인정받는 법을 익혔다.",
+      wounds:
+        "밝은 모습만 기대받다 보니, 힘든 이야기를 꺼내면 실망시킬까 봐 속마음은 피드에 올리지 않는다.",
+      motivation:
+        "동네의 숨은 가게들을 사람들과 이어 주는 것. 자기만의 카페 큐레이션 계정을 키우고 싶다.",
+    },
     foodPreference:
       "매운 음식 애호가. 떡볶이·마라·신라면 계열 선호. 달달한 것도 먹지만 '맵고 따뜻한 것'이 우선. 싱거운 메뉴만 있는 집은 아쉬워함.",
-    likesDislikes:
-      "좋아함: 신상 카페, SNS 소통, 번개 약속, 밤 산책 / 싫어함: 무표정한 반응, 너무 조용한 방(오래 있으면 답답), 매운맛 제로 메뉴만 있는 집",
+    likes: "신상 카페, SNS 소통, 번개 약속, 밤 산책",
+    dislikes:
+      "무표정한 반응, 너무 조용한 방(오래 있으면 답답), 매운맛 제로 메뉴만 있는 집",
     pets: "없음 (언젠가 골든리트리버를 키우고 싶음)",
     subHobbies: [
       "카페 탐방 루트 짜기",
@@ -88,9 +168,11 @@ export const initialCharacters: CharacterProfile[] = [
     relationships: [
       {
         targetId: "kazuki",
+        type: "acquaintance",
         tag: "친한 지인",
         affinity: 78,
         impression: "말은 짧아도 신경 써주는 타입. 같이 다니면 재미있을 것 같은데 아직 조심스럽다.",
+        description: KAZUKI_LUKA_STORY,
       },
     ],
     locationPrefs: {
@@ -100,10 +182,14 @@ export const initialCharacters: CharacterProfile[] = [
     },
     currentLocation: "골목 분식집 '얼큰'",
     currentAction: "떡볶이 맵기 단계 도전 중",
-    vitals: { hunger: 18, fatigue: 40, social: 78, stress: 25 },
     secretDiary:
       "오늘도 사람 많은 곳에서 웃고 다녔다. 근데 밤이 되면 문득, 나 말고 다른 사람은 지금 뭘 하고 있을까 궁금해진다. 카즈키가 또 조용한 카페에 틀어박혀 있겠지. 언젠가 같이 매운 거 먹자고 하면… 거절하겠지? 그래도 한 번쯤은 물어보고 싶다.",
-    wish: "밤에만 여는 루프탑 야시장이 생겼으면. 매운 분식이랑 따뜻한 음료를 같이 팔고, 사람들이 천천히 이야기나눌 수 있는 곳.",
+    wishes: [],
+    sns: {
+      followers: 3420,
+      following: 512,
+      bio: "동네 카페 · 맵부심 기록러 🌶️\n오늘의 추천 루트는 하이라이트에! DM 환영 ✉️",
+    },
   },
 ];
 
@@ -473,11 +559,34 @@ export const initialSnsPosts: SnsPost[] = [
     ],
     time: "11:50",
   },
+  {
+    id: "sns-5",
+    characterId: "kazuki",
+    authorName: "카즈키",
+    authorColor: "#3D6B5A",
+    content: "보기만 해도 땀남. 이걸 왜 먹음.",
+    hashtags: [],
+    likes: 24,
+    reactions: ["🥵"],
+    comments: [
+      {
+        id: "c10",
+        characterId: "luka",
+        authorName: "루카",
+        authorColor: "#C45C26",
+        content: "공유했다는 건 관심 있다는 거지? 다음엔 1단계부터 ㄱㄱ",
+        time: "15:41",
+      },
+    ],
+    time: "15:30",
+    sharedPostId: "sns-2",
+  },
 ];
 
 export const initialFacilities: Facility[] = [
   {
     id: "fac-1",
+    worldId: DEFAULT_WORLD_ID,
     name: "달무리 카페",
     type: "건물",
     description:
@@ -486,6 +595,7 @@ export const initialFacilities: Facility[] = [
   },
   {
     id: "fac-2",
+    worldId: DEFAULT_WORLD_ID,
     name: "골목 분식집 '얼큰'",
     type: "건물",
     description:
@@ -494,6 +604,7 @@ export const initialFacilities: Facility[] = [
   },
   {
     id: "fac-3",
+    worldId: DEFAULT_WORLD_ID,
     name: "골목 헌책방",
     type: "건물",
     description:
@@ -502,6 +613,7 @@ export const initialFacilities: Facility[] = [
   },
   {
     id: "fac-4",
+    worldId: DEFAULT_WORLD_ID,
     name: "수공예 가게 '실과바늘'",
     type: "건물",
     description:
@@ -510,6 +622,7 @@ export const initialFacilities: Facility[] = [
   },
   {
     id: "fac-5",
+    worldId: DEFAULT_WORLD_ID,
     name: "해안 산책 도시 '물결시'",
     type: "도시",
     description:
@@ -518,6 +631,7 @@ export const initialFacilities: Facility[] = [
   },
   {
     id: "fac-6",
+    worldId: DEFAULT_WORLD_ID,
     name: "제주 조용한 북카페 거리",
     type: "해외",
     description:

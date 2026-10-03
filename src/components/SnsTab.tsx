@@ -3,619 +3,874 @@
 import {
   Heart,
   ImageIcon,
-  ImagePlus,
   MessageSquare,
+  Pause,
   Pencil,
-  Plus,
+  Play,
+  Repeat2,
+  Sparkles,
   Trash2,
   Upload,
   X,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
+import CharacterStoryBar from "@/components/CharacterStoryBar";
 import FieldHint from "@/components/FieldHint";
-import type { CharacterProfile, SnsComment, SnsPost } from "@/types";
+import { SNS_FAVORITE_MAX, SNS_POST_LIMIT } from "@/data/dummy";
+import { formatCount, getSnsProfile, parseCount } from "@/data/snsProfile";
+import { readImageAsDataUrl } from "@/lib/image";
+import { formatMonthDay, toDateKey } from "@/lib/date";
+import { postSortKey } from "@/lib/postRetention";
+import { SNS_HASHTAG_MAX } from "@/lib/text";
+import { SNS_AUTO_POSTS_PER_DAY } from "@/lib/snsAutoPost";
+import type {
+  CharacterProfile,
+  SnsComment,
+  SnsPost,
+  SnsProfile,
+} from "@/types";
 
 interface SnsTabProps {
   posts: SnsPost[];
   characters: CharacterProfile[];
-  activeCharacterId: string;
+  selectedId: string;
+  onSelectCharacter: (id: string) => void;
+  onUpdateSnsProfile: (characterId: string, sns: SnsProfile) => void;
   onUpdatePost: (id: string, patch: Partial<SnsPost>) => void;
-  onAddPost: (post: SnsPost) => void;
   onDeletePost: (id: string) => void;
-  onAddComment: (postId: string, comment: SnsComment) => void;
-  onUpdateComment: (
-    postId: string,
-    commentId: string,
-    patch: Partial<SnsComment>
-  ) => void;
-  onDeleteComment: (postId: string, commentId: string) => void;
+  onTogglePostFavorite: (id: string) => void;
+  autoPostEnabled: boolean;
+  onToggleAutoPost: (enabled: boolean) => void;
 }
 
-function readImageFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (!file.type.startsWith("image/")) {
-      reject(new Error("not image"));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") resolve(reader.result);
-      else reject(new Error("fail"));
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+const POST_IMAGE_MAX_SIZE = 1080;
+
+function parseHashtags(raw: string): string[] {
+  const tags = raw
+    .split(/[\s,]+/)
+    .map((t) => t.replace(/^#+/, ""))
+    .filter(Boolean)
+    .map((t) => `#${t}`);
+  return [...new Set(tags)].slice(0, SNS_HASHTAG_MAX);
 }
 
-function nowTime() {
-  const d = new Date();
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+/** 오늘 글은 시각만, 지난 글은 날짜까지 표시 */
+function formatPostTime(post: SnsPost, today: string) {
+  if (!post.date || post.date === today) return post.time;
+  return `${formatMonthDay(post.date)} ${post.time}`;
 }
 
-export default function SnsTab({
-  posts,
-  characters,
-  activeCharacterId,
-  onUpdatePost,
-  onAddPost,
-  onDeletePost,
-  onAddComment,
-  onUpdateComment,
-  onDeleteComment,
-}: SnsTabProps) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [composing, setComposing] = useState(false);
-  const [draftContent, setDraftContent] = useState("");
-  const [draftTags, setDraftTags] = useState("");
-  const [draftImage, setDraftImage] = useState("");
-  const [draftAuthorId, setDraftAuthorId] = useState(activeCharacterId);
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
-    {}
+function AuthorAvatar({
+  character,
+  fallbackName,
+  fallbackColor,
+  size,
+}: {
+  character?: CharacterProfile;
+  fallbackName: string;
+  fallbackColor: string;
+  size: "xs" | "sm";
+}) {
+  if (character) {
+    return (
+      <CharacterAvatar
+        url={character.avatarUrl}
+        color={character.avatarColor}
+        name={character.name}
+        size={size}
+      />
+    );
+  }
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center rounded-full font-semibold text-white ${
+        size === "xs" ? "h-6 w-6 text-[9px]" : "h-10 w-10 text-xs"
+      }`}
+      style={{ backgroundColor: fallbackColor }}
+    >
+      {fallbackName.slice(0, 1)}
+    </div>
   );
-  const [commentAuthor, setCommentAuthor] = useState(activeCharacterId);
-  const [editingPostId, setEditingPostId] = useState<string | null>(null);
-  const [editContent, setEditContent] = useState("");
-  const [editTags, setEditTags] = useState("");
-  const [editingCommentKey, setEditingCommentKey] = useState<string | null>(
-    null
-  );
-  const [editCommentText, setEditCommentText] = useState("");
-  const composeFileRef = useRef<HTMLInputElement>(null);
-  const imageFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+}
 
-  const author = characters.find((c) => c.id === draftAuthorId) ?? characters[0];
+/* ───────────── 프로필 헤더 ───────────── */
 
-  const submitPost = () => {
-    if (!draftContent.trim() || !author) return;
-    const tags = draftTags
-      .split(/[\s,]+/)
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .map((t) => (t.startsWith("#") ? t : `#${t}`));
+function SnsProfileHeader({
+  character,
+  postCount,
+  onSave,
+}: {
+  character: CharacterProfile;
+  postCount: number;
+  onSave: (sns: SnsProfile) => void;
+}) {
+  const profile = getSnsProfile(character);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ followers: "", following: "", bio: "" });
 
-    onAddPost({
-      id: `sns-${Date.now()}`,
-      characterId: author.id,
-      authorName: author.name,
-      authorColor: author.avatarColor,
-      content: draftContent.trim(),
-      hashtags: tags,
-      imageUrl: draftImage || undefined,
-      likes: 0,
-      reactions: [],
-      comments: [],
-      time: nowTime(),
+  const startEdit = () => {
+    setDraft({
+      followers: String(profile.followers),
+      following: String(profile.following),
+      bio: profile.bio,
     });
-    setDraftContent("");
-    setDraftTags("");
-    setDraftImage("");
-    setComposing(false);
+    setEditing(true);
   };
 
-  const submitComment = (postId: string) => {
-    const text = (commentDrafts[postId] ?? "").trim();
-    const who = characters.find((c) => c.id === commentAuthor);
-    if (!text || !who) return;
-    onAddComment(postId, {
-      id: `c-${Date.now()}`,
-      characterId: who.id,
-      authorName: who.name,
-      authorColor: who.avatarColor,
-      content: text,
-      time: nowTime(),
+  const save = () => {
+    onSave({
+      followers: parseCount(draft.followers) ?? profile.followers,
+      following: parseCount(draft.following) ?? profile.following,
+      bio: draft.bio.trim(),
     });
-    setCommentDrafts((s) => ({ ...s, [postId]: "" }));
+    setEditing(false);
   };
 
-  const startEditPost = (post: SnsPost) => {
-    setEditingPostId(post.id);
-    setEditContent(post.content);
-    setEditTags(post.hashtags.join(" "));
-  };
-
-  const saveEditPost = (postId: string) => {
-    if (!editContent.trim()) return;
-    const tags = editTags
-      .split(/[\s,]+/)
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .map((t) => (t.startsWith("#") ? t : `#${t}`));
-    onUpdatePost(postId, {
-      content: editContent.trim(),
-      hashtags: tags,
-    });
-    setEditingPostId(null);
-  };
+  const stats = [
+    { label: "게시물", value: postCount, editable: false },
+    { label: "팔로워", value: profile.followers, editable: true },
+    { label: "팔로잉", value: profile.following, editable: true },
+  ];
 
   return (
-    <div className="pb-4">
-      <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <h2 className="font-[family-name:var(--font-display)] text-sm text-[var(--ink)]">
-              마을 피드
-            </h2>
-            <FieldHint text="마음에 들지 않거나 캐릭터성에 맞지 않는 게시글·댓글은 언제든 삭제 및 수정할 수 있습니다." />
-          </div>
-          <p className="text-[11px] text-[var(--muted)]">
-            등록된 캐릭터만 글·댓글을 남길 수 있어요
-          </p>
+    <section className="border-b border-[var(--line)] bg-[var(--card)] px-4 pb-4 pt-4">
+      <div className="flex items-center gap-5">
+        <CharacterAvatar
+          url={character.avatarUrl}
+          color={character.avatarColor}
+          name={character.name}
+          size="md"
+          className="h-20! w-20! text-4xl!"
+        />
+        <div className="grid flex-1 grid-cols-3 text-center">
+          {stats.map((s) => (
+            <button
+              key={s.label}
+              type="button"
+              disabled={!s.editable}
+              onClick={startEdit}
+              className="rounded-xl py-1.5 transition enabled:hover:bg-[var(--wash)] disabled:cursor-default"
+              title={s.editable ? `${s.label} 수 수정` : undefined}
+            >
+              <p className="text-[17px] font-bold tabular-nums text-[var(--ink)]">
+                {formatCount(s.value)}
+              </p>
+              <p className="text-[11px] text-[var(--muted)]">{s.label}</p>
+            </button>
+          ))}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setDraftAuthorId(activeCharacterId);
-            setComposing((v) => !v);
-          }}
-          className="inline-flex items-center gap-1 rounded-xl bg-[var(--ink)] px-3 py-2 text-[11px] font-medium text-white"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          글쓰기
-        </button>
       </div>
 
-      {composing && (
-        <div className="space-y-2 border-b border-[var(--line)] bg-[var(--wash)]/50 px-4 py-3">
-          <label className="block text-[11px] text-[var(--muted)]">
-            작성 캐릭터
-            <select
-              value={draftAuthorId}
-              onChange={(e) => setDraftAuthorId(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm outline-none"
-            >
-              {characters.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <textarea
-            rows={3}
-            value={draftContent}
-            onChange={(e) => setDraftContent(e.target.value)}
-            placeholder="무슨 일이 있었나요? (사진 없이도 올릴 수 있어요)"
-            className="w-full rounded-xl border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-          />
-          <input
-            type="text"
-            value={draftTags}
-            onChange={(e) => setDraftTags(e.target.value)}
-            placeholder="해시태그 (예: #카페 #디저트)"
-            className="w-full rounded-xl border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm outline-none"
-          />
-          <input
-            ref={composeFileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              try {
-                setDraftImage(await readImageFile(file));
-              } catch {
-                /* ignore */
-              }
-            }}
-          />
-          {draftImage ? (
-            <div className="relative overflow-hidden rounded-xl">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={draftImage}
-                alt="첨부 미리보기"
-                className="max-h-48 w-full object-cover"
-              />
-              <button
-                type="button"
-                onClick={() => setDraftImage("")}
-                className="absolute right-2 top-2 rounded-full bg-[var(--ink)]/70 p-1.5 text-white"
-                aria-label="사진 제거"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => composeFileRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-[11px] text-[var(--muted)] hover:border-[var(--accent)]"
-            >
-              <ImagePlus className="h-3.5 w-3.5" />
-              사진 첨부 (선택)
-            </button>
+      <div className="mt-3">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-[15px] font-bold text-[var(--ink)]">
+            {character.name}
+          </h2>
+          {character.mbti && (
+            <span className="rounded-md bg-[var(--wash)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+              {character.mbti}
+            </span>
           )}
+        </div>
+        {profile.bio ? (
+          <p className="mt-1 whitespace-pre-line text-[13px] leading-5 text-[var(--ink)]/85">
+            {profile.bio}
+          </p>
+        ) : (
+          <p className="mt-1 text-[12px] text-[var(--muted)]">
+            아직 소개글이 없어요.
+          </p>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="mt-3 space-y-2 rounded-xl bg-[var(--wash)] p-3">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-[11px] text-[var(--muted)]">
+              팔로워
+              <input
+                type="number"
+                min={0}
+                value={draft.followers}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, followers: e.target.value }))
+                }
+                className="mt-1 w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-sm tabular-nums text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+              />
+            </label>
+            <label className="text-[11px] text-[var(--muted)]">
+              팔로잉
+              <input
+                type="number"
+                min={0}
+                value={draft.following}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, following: e.target.value }))
+                }
+                className="mt-1 w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-sm tabular-nums text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+              />
+            </label>
+          </div>
+          <label className="block text-[11px] text-[var(--muted)]">
+            소개
+            <textarea
+              rows={2}
+              value={draft.bio}
+              onChange={(e) => setDraft((d) => ({ ...d, bio: e.target.value }))}
+              className="mt-1 w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+            />
+          </label>
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setComposing(false)}
+              onClick={() => setEditing(false)}
               className="px-3 py-1.5 text-[11px] text-[var(--muted)]"
             >
               취소
             </button>
             <button
               type="button"
-              onClick={submitPost}
+              onClick={save}
               className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[11px] text-white"
             >
-              게시
+              저장
             </button>
           </div>
         </div>
+      ) : (
+        <button
+          type="button"
+          onClick={startEdit}
+          className="mt-3 w-full rounded-lg bg-[var(--wash)] py-2 text-[12px] font-semibold text-[var(--ink)] hover:bg-[var(--line)]"
+        >
+          프로필 편집
+        </button>
+      )}
+    </section>
+  );
+}
+
+/* ───────────── 게시물 카드 ───────────── */
+
+function SharedPostEmbed({
+  original,
+  characters,
+  today,
+}: {
+  original?: SnsPost;
+  characters: CharacterProfile[];
+  today: string;
+}) {
+  if (!original) {
+    return (
+      <div className="mt-3 rounded-2xl border border-dashed border-[var(--line)] px-3 py-4 text-center text-[11px] text-[var(--muted)]">
+        원본 게시물이 삭제되었거나 볼 수 없어요.
+      </div>
+    );
+  }
+  const who = characters.find((c) => c.id === original.characterId);
+  return (
+    <div className="mt-3 rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-3 py-3">
+      <div className="flex items-center gap-2">
+        <AuthorAvatar
+          character={who}
+          fallbackName={original.authorName}
+          fallbackColor={original.authorColor}
+          size="xs"
+        />
+        <span className="text-[12px] font-semibold text-[var(--ink)]">
+          {original.authorName}
+        </span>
+        <span className="text-[10px] text-[var(--muted)]">
+          {formatPostTime(original, today)}
+        </span>
+      </div>
+      <p className="mt-1.5 line-clamp-4 text-[13px] leading-6 text-[var(--ink)]">
+        {original.content}
+      </p>
+      {original.hashtags.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {original.hashtags.slice(0, SNS_HASHTAG_MAX).map((tag) => (
+            <span
+              key={tag}
+              className="text-[11px] font-medium text-[var(--accent)]"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+      {original.imageUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={original.imageUrl}
+          alt={`${original.authorName} 게시 이미지`}
+          className="mt-2 aspect-[16/9] w-full rounded-xl object-cover"
+        />
+      )}
+      <p className="mt-2 inline-flex items-center gap-1 text-[11px] text-[var(--muted)]">
+        <Heart className="h-3 w-3" />
+        {original.likes.toLocaleString("ko-KR")}
+      </p>
+    </div>
+  );
+}
+
+interface PostDraft {
+  content: string;
+  tags: string;
+  likes: string;
+  imageUrl: string;
+  comments: SnsComment[];
+}
+
+const fieldClass =
+  "w-full rounded-xl border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]";
+
+function CommentRow({
+  comment,
+  characters,
+  action,
+  children,
+}: {
+  comment: SnsComment;
+  characters: CharacterProfile[];
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex gap-2">
+      <AuthorAvatar
+        character={characters.find((c) => c.id === comment.characterId)}
+        fallbackName={comment.authorName}
+        fallbackColor={comment.authorColor}
+        size="xs"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-[var(--ink)]">
+            {comment.authorName}
+          </span>
+          <span className="text-[10px] text-[var(--muted)]">
+            {comment.time}
+          </span>
+          {action}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SnsPostCard({
+  post,
+  characters,
+  original,
+  today,
+  canFavorite,
+  onUpdatePost,
+  onDeletePost,
+  onToggleFavorite,
+}: {
+  post: SnsPost;
+  characters: CharacterProfile[];
+  original?: SnsPost;
+  today: string;
+  /** 즐겨찾기 해제는 항상, 추가는 자리가 남았을 때만 */
+  canFavorite: boolean;
+  onUpdatePost: SnsTabProps["onUpdatePost"];
+  onDeletePost: SnsTabProps["onDeletePost"];
+  onToggleFavorite: SnsTabProps["onTogglePostFavorite"];
+}) {
+  const [commentsOpen, setCommentsOpen] = useState(true);
+  const [draft, setDraft] = useState<PostDraft | null>(null);
+  const imageFileRef = useRef<HTMLInputElement>(null);
+
+  const poster = characters.find((c) => c.id === post.characterId);
+  const isShare = Boolean(post.sharedPostId);
+  const editing = draft !== null;
+  const canSave = draft !== null && (isShare || draft.content.trim() !== "");
+
+  const startEdit = () =>
+    setDraft({
+      content: post.content,
+      tags: post.hashtags.join(" "),
+      likes: String(post.likes),
+      imageUrl: post.imageUrl ?? "",
+      comments: post.comments.map((c) => ({ ...c })),
+    });
+
+  const saveEdit = () => {
+    if (!draft || !canSave) return;
+    onUpdatePost(post.id, {
+      content: draft.content.trim(),
+      hashtags: parseHashtags(draft.tags),
+      likes: parseCount(draft.likes) ?? post.likes,
+      imageUrl: isShare ? post.imageUrl : draft.imageUrl,
+      comments: draft.comments
+        .map((c) => ({ ...c, content: c.content.trim() }))
+        .filter((c) => c.content),
+    });
+    setDraft(null);
+  };
+
+  const patchDraft = (patch: Partial<PostDraft>) =>
+    setDraft((d) => (d ? { ...d, ...patch } : d));
+
+  const updateDraftComment = (id: string, content: string) =>
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            comments: d.comments.map((c) =>
+              c.id === id ? { ...c, content } : c
+            ),
+          }
+        : d
+    );
+
+  const removeDraftComment = (id: string) =>
+    setDraft((d) =>
+      d ? { ...d, comments: d.comments.filter((c) => c.id !== id) } : d
+    );
+
+  return (
+    <article
+      className={`feed-card px-4 py-3.5 ${post.eventId ? "event-frame" : ""} ${
+        editing ? "ring-2 ring-[var(--accent)]/40" : ""
+      }`}
+    >
+      {isShare && (
+        <p className="mb-2 flex items-center gap-1 text-[11px] font-medium text-[var(--muted)]">
+          <Repeat2 className="h-3.5 w-3.5" />
+          {post.authorName}님이 공유함
+        </p>
+      )}
+      <div className="mb-2.5 flex items-center gap-3">
+        <AuthorAvatar
+          character={poster}
+          fallbackName={post.authorName}
+          fallbackColor={post.authorColor}
+          size="sm"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-[var(--ink)]">
+            {post.authorName}
+          </p>
+          <p className="text-[11px] text-[var(--muted)]">
+            {formatPostTime(post, today)}
+          </p>
+        </div>
+        {editing ? (
+          <div className="flex shrink-0 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setDraft(null)}
+              className="rounded-lg px-2.5 py-1.5 text-[11px] text-[var(--muted)] hover:bg-[var(--wash)]"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={saveEdit}
+              disabled={!canSave}
+              title={canSave ? undefined : "본문을 입력해 주세요"}
+              className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[11px] font-medium text-white disabled:opacity-40"
+            >
+              저장
+            </button>
+          </div>
+        ) : (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              disabled={!canFavorite}
+              onClick={() => onToggleFavorite(post.id)}
+              className={`rounded-full p-1 text-sm leading-none transition hover:bg-[var(--wash)] disabled:cursor-not-allowed disabled:opacity-30 ${
+                post.isFavorite ? "" : "opacity-35 grayscale hover:opacity-70"
+              }`}
+              aria-label={post.isFavorite ? "즐겨찾기 해제" : "즐겨찾기"}
+              aria-pressed={Boolean(post.isFavorite)}
+              title={
+                canFavorite
+                  ? post.isFavorite
+                    ? "즐겨찾기 해제"
+                    : "즐겨찾기 · 오래돼도 지워지지 않아요"
+                  : `즐겨찾기가 가득 찼어요 (${SNS_FAVORITE_MAX}개)`
+              }
+            >
+              <span aria-hidden>⭐</span>
+            </button>
+            <button
+              type="button"
+              onClick={startEdit}
+              className="rounded-full p-1.5 text-[var(--muted)] hover:bg-[var(--wash)] hover:text-[var(--ink)]"
+              aria-label="게시글 수정"
+              title="게시글·좋아요·사진·댓글 수정"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "이 게시글을 삭제하시겠습니까?\n댓글 타래도 함께 삭제됩니다."
+                  )
+                ) {
+                  onDeletePost(post.id);
+                }
+              }}
+              className="rounded-full p-1.5 text-[var(--muted)] hover:bg-red-50 hover:text-red-600"
+              aria-label="게시글 삭제"
+              title="삭제"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {draft ? (
+        <div className="space-y-2.5">
+          <label className="block text-[11px] text-[var(--muted)]">
+            {isShare ? "공유하며 한마디" : "본문"}
+            <textarea
+              rows={3}
+              value={draft.content}
+              onChange={(e) => patchDraft({ content: e.target.value })}
+              className={`mt-1 ${fieldClass}`}
+            />
+          </label>
+          <div className="grid grid-cols-[1fr_6.5rem] gap-2">
+            <label className="block text-[11px] text-[var(--muted)]">
+              해시태그
+              <input
+                type="text"
+                value={draft.tags}
+                onChange={(e) => patchDraft({ tags: e.target.value })}
+                placeholder="#카페 #디저트"
+                className={`mt-1 ${fieldClass}`}
+              />
+            </label>
+            <label className="block text-[11px] text-[var(--muted)]">
+              좋아요 수
+              <input
+                type="number"
+                min={0}
+                value={draft.likes}
+                onChange={(e) => patchDraft({ likes: e.target.value })}
+                className={`mt-1 tabular-nums ${fieldClass}`}
+              />
+            </label>
+          </div>
+        </div>
+      ) : (
+        <>
+          {post.content && (
+            <p className="text-[13.5px] leading-6 text-[var(--ink)]">
+              {post.content}
+            </p>
+          )}
+          {post.hashtags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {post.hashtags.slice(0, SNS_HASHTAG_MAX).map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[11px] font-medium text-[var(--accent)]"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      <div className="divide-y divide-[var(--line)]">
-        {posts.length === 0 && (
-          <p className="px-4 py-10 text-center text-xs text-[var(--muted)]">
-            게시글이 없습니다. 글쓰기로 새 피드를 올려 보세요.
+      {isShare ? (
+        <SharedPostEmbed
+          original={original}
+          characters={characters}
+          today={today}
+        />
+      ) : draft ? (
+        <div className="mt-3">
+          <input
+            ref={imageFileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              try {
+                patchDraft({
+                  imageUrl: await readImageAsDataUrl(file, POST_IMAGE_MAX_SIZE),
+                });
+              } catch {
+                /* 이미지가 아니거나 읽기 실패 */
+              }
+            }}
+          />
+          {draft.imageUrl ? (
+            <div className="relative overflow-hidden rounded-2xl border border-[var(--line)]/60">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={draft.imageUrl}
+                alt="첨부 이미지"
+                className="aspect-[4/3] w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => patchDraft({ imageUrl: "" })}
+                className="absolute right-2 top-2 rounded-full bg-[var(--ink)]/65 px-2 py-1 text-[10px] text-white"
+              >
+                사진 제거
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => imageFileRef.current?.click()}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--line)] bg-[var(--paper)] py-3 text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            >
+              <Upload className="h-4 w-4 opacity-70" />
+              <span className="text-[11px]">사진 넣기 (선택)</span>
+              <span className="hidden items-center gap-1 text-[10px] opacity-70 sm:inline-flex">
+                <ImageIcon className="h-3 w-3" />
+                글만 있는 게시물로도 유지 가능
+              </span>
+            </button>
+          )}
+        </div>
+      ) : (
+        post.imageUrl && (
+          <div className="mt-3 overflow-hidden rounded-2xl border border-[var(--line)]/60">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={post.imageUrl}
+              alt={`${post.authorName} 게시 이미지`}
+              className="aspect-[4/3] w-full object-cover"
+            />
+          </div>
+        )
+      )}
+
+      <div className="-mx-4 mt-3 flex items-center justify-between border-t border-[var(--line)]/70 px-4 pt-2.5">
+        <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+          <span className="inline-flex items-center gap-1">
+            <Heart className="h-4 w-4 fill-current text-[#e0245e]" />
+            <span className="font-semibold tabular-nums text-[var(--ink)]">
+              좋아요 {post.likes.toLocaleString("ko-KR")}개
+            </span>
+          </span>
+          {post.reactions.length > 0 && (
+            <span className="tracking-wider">{post.reactions.join(" ")}</span>
+          )}
+        </div>
+        {post.comments.length > 0 && !editing && (
+          <button
+            type="button"
+            onClick={() => setCommentsOpen((v) => !v)}
+            className="inline-flex items-center gap-1 text-[11px] text-[var(--muted)] hover:text-[var(--ink)]"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            댓글 {post.comments.length}
+          </button>
+        )}
+      </div>
+
+      {draft
+        ? draft.comments.length > 0 && (
+            <div className="mt-3 space-y-2 rounded-2xl bg-[var(--paper)] px-3 py-3">
+              <p className="text-[11px] text-[var(--muted)]">
+                댓글 수정 · 내용을 비우거나 ✕를 누르면 삭제돼요
+              </p>
+              {draft.comments.map((comment) => (
+                <CommentRow
+                  key={comment.id}
+                  comment={comment}
+                  characters={characters}
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => removeDraftComment(comment.id)}
+                      className="ml-auto rounded p-1 text-[var(--muted)] hover:bg-red-50 hover:text-red-600"
+                      aria-label="댓글 삭제"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  }
+                >
+                  <textarea
+                    rows={2}
+                    value={comment.content}
+                    onChange={(e) =>
+                      updateDraftComment(comment.id, e.target.value)
+                    }
+                    className="mt-1 w-full rounded-lg border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-[12.5px] outline-none focus:border-[var(--accent)]"
+                  />
+                </CommentRow>
+              ))}
+            </div>
+          )
+        : commentsOpen &&
+          post.comments.length > 0 && (
+            <div className="mt-3 space-y-2.5 rounded-2xl bg-[var(--paper)] px-3 py-3">
+              {post.comments.map((comment) => (
+                <CommentRow
+                  key={comment.id}
+                  comment={comment}
+                  characters={characters}
+                >
+                  <p className="text-[12.5px] leading-5 text-[var(--ink)]/85">
+                    {comment.content}
+                  </p>
+                </CommentRow>
+              ))}
+            </div>
+          )}
+    </article>
+  );
+}
+
+/* ───────────── 탭 ───────────── */
+
+export default function SnsTab({
+  posts,
+  characters,
+  selectedId,
+  onSelectCharacter,
+  onUpdateSnsProfile,
+  onUpdatePost,
+  onDeletePost,
+  onTogglePostFavorite,
+  autoPostEnabled,
+  onToggleAutoPost,
+}: SnsTabProps) {
+  const selected =
+    characters.find((c) => c.id === selectedId) ?? characters[0];
+
+  const postsById = useMemo(
+    () => new Map(posts.map((p) => [p.id, p])),
+    [posts]
+  );
+
+  const postCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const p of posts)
+      counts[p.characterId] = (counts[p.characterId] ?? 0) + 1;
+    return counts;
+  }, [posts]);
+
+  const today = toDateKey(new Date());
+  const profilePosts = useMemo(
+    () =>
+      posts
+        .filter((p) => p.characterId === selected?.id)
+        .sort((a, b) => postSortKey(b, today).localeCompare(postSortKey(a, today))),
+    [posts, selected?.id, today]
+  );
+
+  if (!selected) return null;
+  const favoriteCount = profilePosts.filter((p) => p.isFavorite).length;
+  const favoritesFull = favoriteCount >= SNS_FAVORITE_MAX;
+
+  return (
+    <div className="pb-4">
+      <CharacterStoryBar
+        characters={characters}
+        value={selected.id}
+        onChange={onSelectCharacter}
+        logCounts={postCounts}
+        showAll={false}
+      />
+
+      <SnsProfileHeader
+        key={`profile-${selected.id}`}
+        character={selected}
+        postCount={profilePosts.length}
+        onSave={(sns) => onUpdateSnsProfile(selected.id, sns)}
+      />
+
+      <div className="px-4 pt-4">
+        <div className="flex items-center gap-1.5">
+          <h2 className="font-[family-name:var(--font-display)] text-base text-[var(--ink)]">
+            게시물
+          </h2>
+          <FieldHint text="게시글 우측 상단 ✏️ 버튼으로 본문·해시태그·좋아요 수·사진·댓글을 한 번에 수정할 수 있어요." />
+          <span className="ml-auto text-[11px] tabular-nums text-[var(--muted)]">
+            보관 {profilePosts.length}/{SNS_POST_LIMIT} · ⭐ {favoriteCount}/{SNS_FAVORITE_MAX}
+          </span>
+        </div>
+        <p className="mt-1 text-[10.5px] leading-4 text-[var(--muted)]">
+          캐릭터마다 최신 {SNS_POST_LIMIT}개까지 보관하고, 넘치면 오래된 글부터 사라져요. ⭐ 즐겨찾기한
+          글은 남지만 그만큼 보관 자리를 차지해요.
+        </p>
+        {favoritesFull && (
+          <p className="mt-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
+            즐겨찾기 {SNS_FAVORITE_MAX}개가 가득 차서 {selected.name}의 새 게시물이 올라오지 않아요.
+            즐겨찾기를 하나 이상 해제하면 다시 올라와요.
           </p>
         )}
-        {posts.map((post) => {
-          const open = expanded[post.id] ?? true;
-          const poster = characters.find((c) => c.id === post.characterId);
-          const isEditing = editingPostId === post.id;
-          return (
-            <article key={post.id} className="px-4 py-4">
-              <div className="mb-2.5 flex items-center gap-2.5">
-                {poster ? (
-                  <CharacterAvatar
-                    url={poster.avatarUrl}
-                    emoji={poster.avatarEmoji}
-                    color={poster.avatarColor}
-                    name={poster.name}
-                    size="sm"
-                  />
-                ) : (
-                  <div
-                    className="flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold text-white"
-                    style={{ backgroundColor: post.authorColor }}
-                  >
-                    {post.authorName.slice(0, 1)}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-[var(--ink)]">
-                    {post.authorName}
-                  </p>
-                  <p className="text-[11px] text-[var(--muted)]">{post.time}</p>
-                </div>
-                <div className="flex shrink-0 gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      isEditing ? setEditingPostId(null) : startEditPost(post)
-                    }
-                    className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--wash)] hover:text-[var(--ink)]"
-                    aria-label="게시글 수정"
-                    title="수정"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          "이 게시글을 삭제하시겠습니까?\n댓글 타래도 함께 삭제됩니다."
-                        )
-                      ) {
-                        onDeletePost(post.id);
-                      }
-                    }}
-                    className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-red-50 hover:text-red-600"
-                    aria-label="게시글 삭제"
-                    title="삭제"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
+        <div className="mt-2 flex items-center gap-2 rounded-xl bg-[var(--wash)] px-3 py-2">
+          <Sparkles
+            className={`h-3.5 w-3.5 shrink-0 ${
+              autoPostEnabled ? "text-[var(--accent)]" : "text-[var(--muted)]"
+            }`}
+          />
+          <p className="min-w-0 flex-1 text-[11px] text-[var(--ink)]">
+            {autoPostEnabled
+              ? `자동 게시 중 · 캐릭터당 하루 ${SNS_AUTO_POSTS_PER_DAY.min}~${SNS_AUTO_POSTS_PER_DAY.max}개`
+              : "자동 게시가 종료되었어요"}
+          </p>
+          <button
+            type="button"
+            onClick={() => onToggleAutoPost(!autoPostEnabled)}
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+              autoPostEnabled
+                ? "bg-[var(--card)] text-[var(--ink)] hover:bg-red-50 hover:text-red-600"
+                : "bg-[var(--accent)] text-white"
+            }`}
+          >
+            {autoPostEnabled ? (
+              <>
+                <Pause className="h-3 w-3" />
+                생성 종료
+              </>
+            ) : (
+              <>
+                <Play className="h-3 w-3" />
+                다시 시작
+              </>
+            )}
+          </button>
+        </div>
+      </div>
 
-              {isEditing ? (
-                <div className="space-y-2">
-                  <textarea
-                    rows={3}
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    className="w-full rounded-xl border border-[var(--line)] bg-[var(--wash)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-                  />
-                  <input
-                    type="text"
-                    value={editTags}
-                    onChange={(e) => setEditTags(e.target.value)}
-                    placeholder="해시태그"
-                    className="w-full rounded-xl border border-[var(--line)] bg-[var(--wash)] px-3 py-2 text-sm outline-none"
-                  />
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditingPostId(null)}
-                      className="text-[11px] text-[var(--muted)]"
-                    >
-                      취소
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => saveEditPost(post.id)}
-                      className="rounded-lg bg-[var(--ink)] px-2.5 py-1 text-[11px] text-white"
-                    >
-                      저장
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <p className="text-[13.5px] leading-6 text-[var(--ink)]">
-                    {post.content}
-                  </p>
-                  {post.hashtags.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {post.hashtags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="text-[11px] font-medium text-[var(--accent)]"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {post.imageUrl ? (
-                <div className="relative mt-3 overflow-hidden rounded-xl">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={post.imageUrl}
-                    alt={`${post.authorName} 게시 이미지`}
-                    className="aspect-[16/9] w-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onUpdatePost(post.id, { imageUrl: "" })}
-                    className="absolute right-2 top-2 rounded-full bg-[var(--ink)]/65 px-2 py-1 text-[10px] text-white"
-                  >
-                    사진 제거
-                  </button>
-                </div>
-              ) : (
-                <div className="mt-3">
-                  <input
-                    ref={(el) => {
-                      imageFileRefs.current[post.id] = el;
-                    }}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      try {
-                        const url = await readImageFile(file);
-                        onUpdatePost(post.id, { imageUrl: url });
-                      } catch {
-                        /* ignore */
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => imageFileRefs.current[post.id]?.click()}
-                    className="flex aspect-[16/9] w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--line)] bg-[var(--wash)] text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                  >
-                    <Upload className="h-5 w-5 opacity-70" />
-                    <span className="text-[11px]">사진 넣기 (선택)</span>
-                    <span className="inline-flex items-center gap-1 text-[10px] opacity-70">
-                      <ImageIcon className="h-3 w-3" />
-                      글만 있는 게시물로도 유지 가능
-                    </span>
-                  </button>
-                </div>
-              )}
-
-              <div className="mt-3 flex items-center justify-between">
-                <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
-                  <span className="inline-flex items-center gap-1">
-                    <Heart className="h-3.5 w-3.5 text-[var(--accent)]" />
-                    {post.likes}
-                  </span>
-                  {post.reactions.length > 0 && (
-                    <span className="tracking-wider">
-                      {post.reactions.join(" ")}
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpanded((s) => ({ ...s, [post.id]: !open }))
-                  }
-                  className="inline-flex items-center gap-1 text-[11px] text-[var(--muted)] hover:text-[var(--ink)]"
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  댓글 {post.comments.length}
-                </button>
-              </div>
-
-              {open && (
-                <div className="mt-3 space-y-2.5 border-l-2 border-[var(--line)] pl-3">
-                  {post.comments.map((comment) => {
-                    const who = characters.find(
-                      (c) => c.id === comment.characterId
-                    );
-                    const cKey = `${post.id}:${comment.id}`;
-                    const isCEdit = editingCommentKey === cKey;
-                    return (
-                      <div key={comment.id} className="flex gap-2">
-                        {who ? (
-                          <CharacterAvatar
-                            url={who.avatarUrl}
-                            emoji={who.avatarEmoji}
-                            color={who.avatarColor}
-                            name={who.name}
-                            size="xs"
-                          />
-                        ) : (
-                          <div
-                            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white"
-                            style={{ backgroundColor: comment.authorColor }}
-                          >
-                            {comment.authorName.slice(0, 1)}
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-semibold text-[var(--ink)]">
-                              {comment.authorName}
-                            </span>
-                            <span className="text-[10px] text-[var(--muted)]">
-                              {comment.time}
-                            </span>
-                            <span className="ml-auto flex gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (isCEdit) {
-                                    setEditingCommentKey(null);
-                                  } else {
-                                    setEditingCommentKey(cKey);
-                                    setEditCommentText(comment.content);
-                                  }
-                                }}
-                                className="rounded p-1 text-[var(--muted)] hover:bg-[var(--wash)] hover:text-[var(--ink)]"
-                                aria-label="댓글 수정"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (
-                                    window.confirm(
-                                      "이 댓글을 삭제하시겠습니까?"
-                                    )
-                                  ) {
-                                    onDeleteComment(post.id, comment.id);
-                                  }
-                                }}
-                                className="rounded p-1 text-[var(--muted)] hover:bg-red-50 hover:text-red-600"
-                                aria-label="댓글 삭제"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </span>
-                          </div>
-                          {isCEdit ? (
-                            <div className="mt-1 space-y-1.5">
-                              <textarea
-                                rows={2}
-                                value={editCommentText}
-                                onChange={(e) =>
-                                  setEditCommentText(e.target.value)
-                                }
-                                className="w-full rounded-lg border border-[var(--line)] bg-[var(--wash)] px-2 py-1.5 text-[12.5px] outline-none"
-                              />
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingCommentKey(null)}
-                                  className="text-[10px] text-[var(--muted)]"
-                                >
-                                  취소
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (!editCommentText.trim()) return;
-                                    onUpdateComment(post.id, comment.id, {
-                                      content: editCommentText.trim(),
-                                    });
-                                    setEditingCommentKey(null);
-                                  }}
-                                  className="rounded-md bg-[var(--ink)] px-2 py-0.5 text-[10px] text-white"
-                                >
-                                  저장
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="text-[12.5px] leading-5 text-[var(--ink)]/85">
-                              {comment.content}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  <div className="space-y-1.5 pt-1">
-                    <select
-                      value={commentAuthor}
-                      onChange={(e) => setCommentAuthor(e.target.value)}
-                      className="w-full rounded-lg border border-[var(--line)] bg-[var(--wash)] px-2 py-1.5 text-[11px] outline-none"
-                    >
-                      {characters.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}(으)로 댓글
-                        </option>
-                      ))}
-                    </select>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={commentDrafts[post.id] ?? ""}
-                        onChange={(e) =>
-                          setCommentDrafts((s) => ({
-                            ...s,
-                            [post.id]: e.target.value,
-                          }))
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            submitComment(post.id);
-                          }
-                        }}
-                        placeholder="댓글 남기기…"
-                        className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--wash)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--accent)]"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => submitComment(post.id)}
-                        className="shrink-0 rounded-lg bg-[var(--ink)] px-2.5 text-[11px] text-white"
-                      >
-                        등록
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </article>
-          );
-        })}
+      <div className="space-y-3 px-3 pt-3">
+        {profilePosts.length === 0 && (
+          <p className="feed-card px-4 py-10 text-center text-xs text-[var(--muted)]">
+            {selected.name}의 게시물이 아직 없어요.
+          </p>
+        )}
+        {profilePosts.map((post) => (
+          <SnsPostCard
+            key={post.id}
+            post={post}
+            characters={characters}
+            original={
+              post.sharedPostId ? postsById.get(post.sharedPostId) : undefined
+            }
+            today={today}
+            canFavorite={Boolean(post.isFavorite) || !favoritesFull}
+            onUpdatePost={onUpdatePost}
+            onDeletePost={onDeletePost}
+            onToggleFavorite={onTogglePostFavorite}
+          />
+        ))}
       </div>
     </div>
   );

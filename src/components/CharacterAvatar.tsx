@@ -2,23 +2,23 @@
 
 interface CharacterAvatarProps {
   url?: string;
-  emoji: string;
+  /** 대표 색상. 사진이 없을 때 단색 배경으로 보인다 */
   color: string;
   name: string;
-  size?: "xs" | "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "story" | "md" | "lg";
   className?: string;
 }
 
 const SIZE_MAP = {
-  xs: "h-6 w-6 text-[10px]",
-  sm: "h-10 w-10 text-sm",
-  md: "h-16 w-16 text-2xl",
-  lg: "h-24 w-24 text-4xl",
+  xs: "h-6 w-6",
+  sm: "h-10 w-10",
+  story: "h-14 w-14",
+  md: "h-16 w-16",
+  lg: "h-24 w-24",
 } as const;
 
 export default function CharacterAvatar({
   url,
-  emoji,
   color,
   name,
   size = "sm",
@@ -39,13 +39,10 @@ export default function CharacterAvatar({
 
   return (
     <div
-      className={`${sizeClass} flex shrink-0 items-center justify-center rounded-full shadow-sm ring-2 ring-[var(--paper)] ${className}`}
+      role="img"
+      className={`${sizeClass} shrink-0 rounded-full shadow-sm ring-2 ring-[var(--paper)] ${className}`}
       style={{ backgroundColor: color }}
       aria-label={`${name} 기본 아바타`}
-    >
-      <span className="leading-none select-none" role="img" aria-hidden>
-        {emoji}
-      </span>
-    </div>
+    />
   );
 }

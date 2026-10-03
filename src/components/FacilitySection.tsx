@@ -1,35 +1,35 @@
 "use client";
 
-import { MapPin, Pencil, Plus, Sparkles } from "lucide-react";
+import { MapPin, Pencil, Plus } from "lucide-react";
 import { useState } from "react";
-import type { Facility } from "@/types";
+import type { Facility, FacilityType } from "@/types";
 
-interface FacilityTabProps {
+interface FacilitySectionProps {
+  /** 이 세계의 시설만 */
   facilities: Facility[];
-  wishHint?: string;
-  onAdd: (facility: Omit<Facility, "id">) => void;
+  onAdd: (facility: Omit<Facility, "id" | "worldId">) => void;
   onUpdate: (id: string, patch: Partial<Facility>) => void;
 }
 
-const TYPE_OPTIONS: Facility["type"][] = ["건물", "도시", "해외", "기타"];
+export const FACILITY_TYPES: FacilityType[] = ["건물", "도시", "해외", "기타"];
 
-export default function FacilityTab({
+/** 세계 안에 존재하는 장소 목록 */
+export default function FacilitySection({
   facilities,
-  wishHint,
   onAdd,
   onUpdate,
-}: FacilityTabProps) {
+}: FacilitySectionProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     name: "",
-    type: "건물" as Facility["type"],
+    type: "건물" as FacilityType,
     description: "",
     unlocked: true,
   });
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     name: "",
-    type: "건물" as Facility["type"],
+    type: "건물" as FacilityType,
     description: "",
     unlocked: true,
   });
@@ -45,7 +45,7 @@ export default function FacilityTab({
   };
 
   const saveEdit = () => {
-    if (!editingId) return;
+    if (!editingId || !draft.name.trim() || !draft.description.trim()) return;
     onUpdate(editingId, draft);
     setEditingId(null);
   };
@@ -63,39 +63,26 @@ export default function FacilityTab({
   };
 
   return (
-    <div className="space-y-4 px-4 py-4 pb-6">
+    <section className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="font-[family-name:var(--font-display)] text-sm text-[var(--ink)]">
-            시설 / 세계관 관리
+          <h2 className="flex items-center gap-1.5 font-[family-name:var(--font-display)] text-sm text-[var(--ink)]">
+            <MapPin className="h-3.5 w-3.5 text-[var(--accent)]" />
+            이 세계의 시설
           </h2>
           <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-            해금된 장소와 소원을 반영한 새 공간을 관리합니다
+            이 세계에만 존재하는 장소예요. 캐릭터들은 여기 있는 곳으로만 다녀요.
           </p>
         </div>
         <button
           type="button"
           onClick={() => setShowForm((v) => !v)}
-          className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[var(--ink)] px-3 py-2 text-[11px] font-medium text-white"
+          className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-[var(--accent)] px-3 py-2 text-[11px] font-medium text-white"
         >
           <Plus className="h-3.5 w-3.5" />
           장소 추가
         </button>
       </div>
-
-      {wishHint && (
-        <div className="flex gap-2 rounded-xl border border-dashed border-[var(--accent)]/40 bg-[var(--accent-soft)]/60 px-3 py-3">
-          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
-          <div>
-            <p className="text-[10px] font-medium text-[var(--accent)]">
-              선택된 캐릭터의 소원
-            </p>
-            <p className="mt-0.5 text-[12.5px] leading-5 text-[var(--ink)]">
-              {wishHint}
-            </p>
-          </div>
-        </div>
-      )}
 
       {showForm && (
         <div className="space-y-2 rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-4">
@@ -112,12 +99,12 @@ export default function FacilityTab({
             onChange={(e) =>
               setForm((s) => ({
                 ...s,
-                type: e.target.value as Facility["type"],
+                type: e.target.value as FacilityType,
               }))
             }
             className="w-full rounded-xl border border-[var(--line)] bg-[var(--wash)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
           >
-            {TYPE_OPTIONS.map((t) => (
+            {FACILITY_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
@@ -163,6 +150,11 @@ export default function FacilityTab({
       )}
 
       <ul className="space-y-3">
+        {facilities.length === 0 && (
+          <li className="rounded-2xl border border-dashed border-[var(--line)] px-4 py-8 text-center text-xs text-[var(--muted)]">
+            아직 등록된 장소가 없어요. 세계관에 어울리는 장소를 추가해 보세요.
+          </li>
+        )}
         {facilities.map((f) => (
           <li
             key={f.id}
@@ -183,12 +175,12 @@ export default function FacilityTab({
                   onChange={(e) =>
                     setDraft((d) => ({
                       ...d,
-                      type: e.target.value as Facility["type"],
+                      type: e.target.value as FacilityType,
                     }))
                   }
                   className="w-full rounded-xl border border-[var(--line)] bg-[var(--wash)] px-3 py-2 text-sm outline-none"
                 >
-                  {TYPE_OPTIONS.map((t) => (
+                  {FACILITY_TYPES.map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>
@@ -224,7 +216,7 @@ export default function FacilityTab({
                   <button
                     type="button"
                     onClick={saveEdit}
-                    className="rounded-lg bg-[var(--ink)] px-3 py-1.5 text-[11px] text-white"
+                    className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[11px] text-white"
                   >
                     저장
                   </button>
@@ -270,6 +262,6 @@ export default function FacilityTab({
           </li>
         ))}
       </ul>
-    </div>
+    </section>
   );
 }
