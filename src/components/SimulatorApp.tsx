@@ -663,40 +663,43 @@ export default function SimulatorApp() {
       )}
 
       <main className="flex-1 overflow-y-auto pb-24">
-        {tab === "timeline" && (
-          <TimelineTab
-            logs={feedLogs}
-            schedules={feedSchedules}
-            characters={worldCharacters}
-            filter={effectiveFilter}
-            onFilterChange={handleTimelineFilterChange}
-            onAddCharacter={openAddCharacter}
-            logCounts={logCounts}
-            favoriteCount={favoriteCount}
-            favoriteMax={FAVORITE_SLOT_MAX}
-            totalLogCount={logs.length}
-            onToggleFavorite={toggleFavorite}
-            onDeleteLog={(id) =>
-              setLogs((prev) => prev.filter((l) => l.id !== id))
-            }
-            onAddSchedule={(item) =>
-              setSchedules((prev) => [
-                ...prev,
-                { ...item, id: `sch-${Date.now()}` },
-              ])
-            }
-            onUpdateSchedule={(id, patch) =>
-              setSchedules((prev) =>
-                prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
-              )
-            }
-            onDeleteSchedule={(id) =>
-              setSchedules((prev) => prev.filter((s) => s.id !== id))
-            }
-            ongoingEvents={ongoingWorldEvents}
-            onOpenEvents={() => setTab("event")}
-          />
-        )}
+        {tab === "timeline" &&
+          (worldCharacters.length === 0 ? (
+            <EmptyWorld world={currentWorld} onAdd={openAddCharacter} />
+          ) : (
+            <TimelineTab
+              logs={feedLogs}
+              schedules={feedSchedules}
+              characters={worldCharacters}
+              filter={effectiveFilter}
+              onFilterChange={handleTimelineFilterChange}
+              onAddCharacter={openAddCharacter}
+              logCounts={logCounts}
+              favoriteCount={favoriteCount}
+              favoriteMax={FAVORITE_SLOT_MAX}
+              totalLogCount={logs.length}
+              onToggleFavorite={toggleFavorite}
+              onDeleteLog={(id) =>
+                setLogs((prev) => prev.filter((l) => l.id !== id))
+              }
+              onAddSchedule={(item) =>
+                setSchedules((prev) => [
+                  ...prev,
+                  { ...item, id: `sch-${Date.now()}` },
+                ])
+              }
+              onUpdateSchedule={(id, patch) =>
+                setSchedules((prev) =>
+                  prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
+                )
+              }
+              onDeleteSchedule={(id) =>
+                setSchedules((prev) => prev.filter((s) => s.id !== id))
+              }
+              ongoingEvents={ongoingWorldEvents}
+              onOpenEvents={() => setTab("event")}
+            />
+          ))}
         {tab === "sns" &&
           (selected ? (
             <SnsTab
