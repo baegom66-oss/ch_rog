@@ -86,11 +86,39 @@ function loadLegacyOfflineLogFrequency(): OfflineLogFrequency {
   return isOfflineLogFrequency(raw) ? raw : DEFAULT_OFFLINE_LOG_FREQUENCY;
 }
 
-/** 저장된 세계가 없으면 기본 세계를 쓰되, 예전 전역 오프라인 설정을 이어받는다 */
+/**
+ * 손대지 않은 예전 시작 세계(달무리 동네)만 있고 거기에 캐릭터가 없으면 비운다.
+ * 이름을 바꿨거나 세계관을 적었거나 캐릭터가 살면 그대로 둔다.
+ */
+function dropUntouchedSeedWorld(worlds: World[]): boolean {
+  if (worlds.length !== 1) return false;
+  const only = worlds[0];
+  if (
+    !only ||
+    only.id !== DEFAULT_WORLD_ID ||
+    only.name !== "달무리 동네" ||
+    (only.lore ?? "").trim()
+  ) {
+    return false;
+  }
+  const characters = loadStoredList<{ id?: string; worldId?: string }>(
+    STORAGE_KEYS.characterProfiles,
+    []
+  );
+  return !characters.some(
+    (c) => c && c.id && (!c.worldId || c.worldId === DEFAULT_WORLD_ID)
+  );
+}
+
+/** 저장된 세계가 없으면 빈 목록. 손대지 않은 예전 시작 세계는 버린다 */
 export function loadWorlds(fallback: World[]): World[] {
   const parsed = loadStoredList<World>(STORAGE_KEYS.worlds, []);
   if (parsed.length > 0) {
-    return parsed.map((w) => ({ ...w, timeline: { ...DEFAULT_TIMELINE, ...w.timeline } }));
+    const normalized = parsed.map((w) => ({
+      ...w,
+      timeline: { ...DEFAULT_TIMELINE, ...w.timeline },
+    }));
+    return dropUntouchedSeedWorld(normalized) ? [] : normalized;
   }
   const offlineFrequency = loadLegacyOfflineLogFrequency();
   return fallback.map((w) =>
@@ -98,7 +126,7 @@ export function loadWorlds(fallback: World[]): World[] {
   );
 }
 
-/** 저장된 세계가 없으면 선택된 캐릭터가 사는 세계 */
+/** 저장된 세계가 없으면 선택된 캐릭터가 사는 세계. 세계가 없으면 빈 문자열 */
 export function loadSelectedWorldId(
   worlds: World[],
   characters: CharacterProfile[],
@@ -107,18 +135,21 @@ export function loadSelectedWorldId(
   const raw = readString(STORAGE_KEYS.selectedWorldId);
   if (worlds.some((w) => w.id === raw)) return raw!;
   const owner = characters.find((c) => c.id === selectedCharacterId)?.worldId;
-  return worlds.some((w) => w.id === owner) ? owner! : worlds[0].id;
+  if (worlds.some((w) => w.id === owner)) return owner!;
+  return worlds[0]?.id ?? "";
 }
 
 export function saveSelectedWorldId(id: string): void {
   writeString(STORAGE_KEYS.selectedWorldId, id);
 }
 
-/** 세계 도입 전 시설은 기본 세계에 둔다 */
+/** 세계 도입 전 시설은 기본 세계에 둔다. 시작 세계를 버렸으면 그 장소도 버린다 */
 export function loadFacilities(fallback: Facility[]): Facility[] {
-  return loadStoredList(STORAGE_KEYS.facilities, fallback).map((f) =>
-    f.worldId ? f : { ...f, worldId: DEFAULT_WORLD_ID }
-  );
+  const storedWorlds = loadStoredList<World>(STORAGE_KEYS.worlds, []);
+  const dropSeed = dropUntouchedSeedWorld(storedWorlds);
+  return loadStoredList(STORAGE_KEYS.facilities, fallback)
+    .map((f) => (f.worldId ? f : { ...f, worldId: DEFAULT_WORLD_ID }))
+    .filter((f) => !(dropSeed && f.worldId === DEFAULT_WORLD_ID));
 }
 
 export function loadCharacterProfiles(
@@ -164,7 +195,11 @@ export function loadAiSettings(): AiSettings {
 }
 
 export function loadEvents(): StoryEvent[] {
-  return loadStoredList<StoryEvent>(STORAGE_KEYS.events, []).map(normalizeEvent);
+  const storedWorlds = loadStoredList<World>(STORAGE_KEYS.worlds, []);
+  const dropSeed = dropUntouchedSeedWorld(storedWorlds);
+  return loadStoredList<StoryEvent>(STORAGE_KEYS.events, [])
+    .map(normalizeEvent)
+    .filter((e) => !(dropSeed && e.worldId === DEFAULT_WORLD_ID));
 }
 
 export function loadSnsAutoPostEnabled(): boolean {

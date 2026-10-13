@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Save, Sparkles, Upload, X } from "lucide-react";
+import { Pencil, Plus, Save, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import LocationPrefsPanel from "@/components/LocationPrefsPanel";
@@ -27,6 +27,7 @@ import {
 } from "@/data/profileOptions";
 import type { WorldPopulation } from "@/data/worlds";
 import { PROFILE_OVERRIDE_UI_HINT } from "@/lib/aiSystemPrompt";
+import { josa } from "@/lib/text";
 import { CHARACTER_COLORS, characterProfileTheme } from "@/lib/color";
 import { readImageAsDataUrl } from "@/lib/image";
 import { isSubmitEnter } from "@/lib/keyboard";
@@ -51,6 +52,7 @@ interface CharacterTabProps {
   onPatch: (patch: Partial<CharacterProfile>) => void;
   onUpdateRelationship: (rel: CharacterRelationship) => void;
   onMoveWorld: (worldId: string) => void;
+  onDelete: () => void;
 }
 
 const AVATAR_MAX_SIZE = 320;
@@ -169,6 +171,7 @@ export default function CharacterTab({
   onPatch,
   onUpdateRelationship,
   onMoveWorld,
+  onDelete,
 }: CharacterTabProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<CharacterProfile>(character);
@@ -764,6 +767,25 @@ export default function CharacterTab({
       />
 
       <SecretDiaryCard character={character} onPatch={onPatch} />
+
+      <div className="border-t border-[var(--line)] pt-4">
+        <button
+          type="button"
+          onClick={() => {
+            if (
+              window.confirm(
+                `${josa(character.name, "을", "를")} 삭제할까요?\n타임라인, SNS, 관계, 이벤트 참여도 함께 사라져요.`
+              )
+            ) {
+              onDelete();
+            }
+          }}
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] text-red-600/80 hover:bg-red-50"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          이 캐릭터 삭제
+        </button>
+      </div>
     </div>
   );
 }

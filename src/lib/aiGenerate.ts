@@ -44,7 +44,8 @@ function describeMoment(date: string, time: string) {
 }
 
 function sceneFor(character: CharacterProfile, ctx: AiWorldContext, date: string) {
-  const world = ctx.worlds.find((w) => w.id === character.worldId) ?? ctx.worlds[0];
+  const world = ctx.worlds.find((w) => w.id === character.worldId);
+  if (!world) throw new Error("캐릭터가 사는 세계를 찾을 수 없어요.");
   const worldmates = ctx.characters.filter((c) => c.worldId === character.worldId);
   const places = ctx.facilities.filter((f) => f.worldId === character.worldId);
   const event = activeEventFor(character, ctx.events, date);

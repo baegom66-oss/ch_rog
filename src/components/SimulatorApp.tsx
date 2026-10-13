@@ -104,6 +104,60 @@ function runNowAndEvery(task: () => void, ms: number) {
   };
 }
 
+function NeedOwnWorld({
+  guide,
+  hasWorlds,
+  onCreate,
+  onShowGuide,
+}: {
+  guide: boolean;
+  hasWorlds: boolean;
+  onCreate: () => void;
+  onShowGuide: () => void;
+}) {
+  return (
+    <div className="px-6 py-16 text-center">
+      <p className="text-3xl">{guide ? "🇰🇷" : "🌍"}</p>
+      <p className="mt-3 text-sm font-medium text-[var(--ink)]">
+        {guide ? "현대 한국은 가이드 세계예요" : "아직 세계가 없어요"}
+      </p>
+      <p className="mt-1 text-xs text-[var(--muted)]">
+        {guide
+          ? "캐릭터와 타임라인은 직접 만든 세계에서만 흘러요."
+          : "세계를 만든 뒤 캐릭터를 데려오면 하루가 시작돼요."}
+      </p>
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={onCreate}
+          className="inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-medium text-white"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {guide ? (hasWorlds ? "내 세계로 돌아가기" : "내 세계 만들기") : "세계 만들기"}
+        </button>
+        {!guide && (
+          <button
+            type="button"
+            onClick={onShowGuide}
+            className="inline-flex items-center rounded-full border border-[var(--line)] px-4 py-2 text-xs font-medium text-[var(--ink)]"
+          >
+            가이드 보기
+          </button>
+        )}
+        {guide && (
+          <button
+            type="button"
+            onClick={onShowGuide}
+            className="inline-flex items-center rounded-full border border-[var(--line)] px-4 py-2 text-xs font-medium text-[var(--ink)]"
+          >
+            가이드 설명 보기
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EmptyWorld({ world, onAdd }: { world: World; onAdd: () => void }) {
   return (
     <div className="px-6 py-16 text-center">
@@ -141,6 +195,7 @@ export default function SimulatorApp() {
   const [worldId, setWorldId] = useState(() =>
     loadSelectedWorldId(worlds, characters, selectedId)
   );
+  const [viewingGuide, setViewingGuide] = useState(false);
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>("all");
   const [snsAutoPostEnabled, setSnsAutoPostEnabled] = useState(
     loadSnsAutoPostEnabled
@@ -173,20 +228,22 @@ export default function SimulatorApp() {
   const aiActive = aiSettings.enabled && aiSettings.apiKey !== "";
   const aiConfig = { apiKey: aiSettings.apiKey, model: aiSettings.model };
 
-  const currentWorld = worlds.find((w) => w.id === worldId) ?? worlds[0];
+  const currentWorld = worlds.find((w) => w.id === worldId);
   const worldCharacters = useMemo(
-    () => characters.filter((c) => c.worldId === currentWorld.id),
-    [characters, currentWorld.id]
+    () => (currentWorld ? characters.filter((c) => c.worldId === currentWorld.id) : []),
+    [characters, currentWorld]
   );
   const selected: CharacterProfile | undefined =
     worldCharacters.find((c) => c.id === selectedId) ?? worldCharacters[0];
   const selectedCharacterId = selected?.id ?? "";
-  const speed = currentWorld.timeline.speed;
+  const speed = currentWorld?.timeline.speed ?? 1;
 
   const worldPopulation = useMemo(() => countByWorld(characters), [characters]);
 
   useEffect(() => saveSelectedCharacterId(selectedId), [selectedId]);
-  useEffect(() => saveSelectedWorldId(currentWorld.id), [currentWorld.id]);
+  useEffect(() => {
+    if (currentWorld) saveSelectedWorldId(currentWorld.id);
+  }, [currentWorld]);
   useEffect(
     () => saveSnsAutoPostEnabled(snsAutoPostEnabled),
     [snsAutoPostEnabled]
@@ -465,13 +522,19 @@ export default function SimulatorApp() {
     return counts;
   }, [logs, posts]);
 
-  const ongoingWorldEvents = events.filter(
-    (e) => e.worldId === currentWorld.id && eventStatus(e, today) === "ongoing"
-  );
+  const ongoingWorldEvents = currentWorld
+    ? events.filter((e) => e.worldId === currentWorld.id && eventStatus(e, today) === "ongoing")
+    : [];
   const selectedEvent = selected ? activeEventFor(selected, events, today) : undefined;
 
+  const openGuide = () => {
+    setViewingGuide(true);
+    setTab("world");
+  };
+
   const switchWorld = (id: string) => {
-    if (id === currentWorld.id) return;
+    setViewingGuide(false);
+    if (id === currentWorld?.id) return;
     setWorldId(id);
     setTimelineFilter("all");
     const first = characters.find((c) => c.worldId === id);
@@ -485,7 +548,7 @@ export default function SimulatorApp() {
 
   const handleSelectCharacter = (id: string) => {
     const target = characters.find((c) => c.id === id);
-    if (target && target.worldId !== currentWorld.id) {
+    if (target && target.worldId !== currentWorld?.id) {
       setWorldId(target.worldId);
       setTimelineFilter("all");
     } else if (timelineFilter !== "all") {
@@ -610,13 +673,52 @@ export default function SimulatorApp() {
     setWorlds((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   };
 
+  const deleteCharacter = (id: string) => {
+    const target = characters.find((c) => c.id === id);
+    if (!target) return;
+    setCharacters((prev) =>
+      prev
+        .filter((c) => c.id !== id)
+        .map((c) => ({
+          ...c,
+          relationships: c.relationships.filter((r) => r.targetId !== id),
+        }))
+    );
+    setLogs((prev) => prev.filter((l) => l.characterId !== id));
+    setSchedules((prev) => prev.filter((s) => s.characterId !== id));
+    setPosts((prev) => {
+      const removedIds = new Set(prev.filter((p) => p.characterId === id).map((p) => p.id));
+      return prev
+        .filter((p) => p.characterId !== id && !(p.sharedPostId && removedIds.has(p.sharedPostId)))
+        .map((p) => ({
+          ...p,
+          comments: p.comments.filter((c) => c.characterId !== id),
+        }));
+    });
+    setEvents((prev) =>
+      prev.map((e) =>
+        e.participantIds.includes(id)
+          ? { ...e, participantIds: e.participantIds.filter((p) => p !== id) }
+          : e
+      )
+    );
+    if (selectedId === id) {
+      const next = characters.find((c) => c.id !== id && c.worldId === target.worldId);
+      setSelectedId(next?.id ?? "");
+    }
+    if (timelineFilter === id) setTimelineFilter("all");
+  };
+
   const deleteWorld = (id: string) => {
-    if (worlds.length <= 1 || characters.some((c) => c.worldId === id)) return;
+    if (characters.some((c) => c.worldId === id)) return;
     const rest = worlds.filter((w) => w.id !== id);
     setWorlds(rest);
     setFacilities((prev) => prev.filter((f) => f.worldId !== id));
     setEvents((prev) => prev.filter((e) => e.worldId !== id));
-    if (id === currentWorld.id) switchWorld(rest[0].id);
+    if (id === currentWorld?.id) {
+      if (rest[0]) switchWorld(rest[0].id);
+      else setWorldId("");
+    }
   };
 
   const applyTimelineToAllWorlds = (patch: Partial<WorldTimelineSettings>) => {
@@ -625,13 +727,29 @@ export default function SimulatorApp() {
     );
   };
 
-  const openAddCharacter = () => setAddCharacterOpen(true);
+  const openAddCharacter = () => {
+    if (viewingGuide) setViewingGuide(false);
+    if (!currentWorld) {
+      setTab("world");
+      return;
+    }
+    setAddCharacterOpen(true);
+  };
+
+  const openWorldCreate = () => {
+    setViewingGuide(false);
+    setTab("world");
+  };
+
+  const ownWorld = viewingGuide ? undefined : currentWorld;
 
   return (
     <div className="relative mx-auto flex min-h-dvh w-full max-w-lg flex-col bg-[var(--paper)] shadow-[0_0_60px_rgba(143,65,229,0.14)]">
       <Header
         worlds={worlds}
-        currentWorld={currentWorld}
+        currentWorld={currentWorld ?? null}
+        viewingGuide={viewingGuide}
+        onOpenGuide={openGuide}
         worldPopulation={worldPopulation}
         onSelectWorld={switchWorld}
         characters={worldCharacters}
@@ -651,21 +769,28 @@ export default function SimulatorApp() {
         onOpenAiSettings={() => setSettingsOpen(true)}
       />
 
-      {speed === 0 && (
+      {ownWorld && speed === 0 && (
         <div className="border-b border-[var(--line)] bg-[var(--wash)] px-4 py-1.5 text-center text-[11px] text-[var(--muted)]">
-          {currentWorld.name}의 시간이 멈춰 있어요 · 관찰만 가능합니다
+          {ownWorld.name}의 시간이 멈춰 있어요 · 관찰만 가능합니다
         </div>
       )}
-      {speed > 1 && (
+      {ownWorld && speed > 1 && (
         <div className="border-b border-[var(--line)] bg-[var(--accent-soft)] px-4 py-1.5 text-center text-[11px] text-[var(--accent)]">
-          {currentWorld.name}은(는) {speed}배속으로 시간이 흐르는 중 (UI 프로토타입)
+          {ownWorld.name}은(는) {speed}배속으로 시간이 흐르는 중 (UI 프로토타입)
         </div>
       )}
 
       <main className="flex-1 overflow-y-auto pb-24">
         {tab === "timeline" &&
-          (worldCharacters.length === 0 ? (
-            <EmptyWorld world={currentWorld} onAdd={openAddCharacter} />
+          (!ownWorld ? (
+            <NeedOwnWorld
+              guide={viewingGuide}
+              hasWorlds={worlds.length > 0}
+              onCreate={openWorldCreate}
+              onShowGuide={openGuide}
+            />
+          ) : worldCharacters.length === 0 ? (
+            <EmptyWorld world={ownWorld} onAdd={openAddCharacter} />
           ) : (
             <TimelineTab
               logs={feedLogs}
@@ -701,7 +826,14 @@ export default function SimulatorApp() {
             />
           ))}
         {tab === "sns" &&
-          (selected ? (
+          (!ownWorld ? (
+            <NeedOwnWorld
+              guide={viewingGuide}
+              hasWorlds={worlds.length > 0}
+              onCreate={openWorldCreate}
+              onShowGuide={openGuide}
+            />
+          ) : selected ? (
             <SnsTab
               posts={worldPosts}
               characters={worldCharacters}
@@ -719,10 +851,17 @@ export default function SimulatorApp() {
               onToggleAutoPost={setSnsAutoPostEnabled}
             />
           ) : (
-            <EmptyWorld world={currentWorld} onAdd={openAddCharacter} />
+            <EmptyWorld world={ownWorld} onAdd={openAddCharacter} />
           ))}
         {tab === "character" &&
-          (selected ? (
+          (!ownWorld ? (
+            <NeedOwnWorld
+              guide={viewingGuide}
+              hasWorlds={worlds.length > 0}
+              onCreate={openWorldCreate}
+              onShowGuide={openGuide}
+            />
+          ) : selected ? (
             <CharacterTab
               key={selected.id}
               character={selected}
@@ -733,13 +872,22 @@ export default function SimulatorApp() {
               onPatch={(patch) => patchCharacter(selected.id, patch)}
               onUpdateRelationship={updateRelationship}
               onMoveWorld={(target) => moveCharacterToWorld(selected.id, target)}
+              onDelete={() => deleteCharacter(selected.id)}
             />
           ) : (
-            <EmptyWorld world={currentWorld} onAdd={openAddCharacter} />
+            <EmptyWorld world={ownWorld} onAdd={openAddCharacter} />
           ))}
-        {tab === "event" && (
+        {tab === "event" &&
+          (!ownWorld ? (
+            <NeedOwnWorld
+              guide={viewingGuide}
+              hasWorlds={worlds.length > 0}
+              onCreate={openWorldCreate}
+              onShowGuide={openGuide}
+            />
+          ) : (
           <EventTab
-            world={currentWorld}
+            world={ownWorld}
             worlds={worlds}
             characters={characters}
             events={events}
@@ -752,11 +900,13 @@ export default function SimulatorApp() {
               setTab("character");
             }}
           />
-        )}
+          ))}
         {tab === "world" && (
           <WorldTab
             worlds={worlds}
-            currentWorld={currentWorld}
+            currentWorld={currentWorld ?? null}
+            viewingGuide={viewingGuide}
+            onOpenGuide={openGuide}
             characters={characters}
             facilities={facilities}
             onSelectWorld={switchWorld}
@@ -813,7 +963,7 @@ export default function SimulatorApp() {
         />
       )}
 
-      {addCharacterOpen && (
+      {addCharacterOpen && currentWorld && (
         <AddCharacterModal
           worlds={worlds}
           worldPopulation={worldPopulation}

@@ -4,6 +4,7 @@ import { Check, ChevronDown, Loader2, Plus, Settings2, Sparkles } from "lucide-r
 import { useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import {
+  GUIDE_WORLD,
   populationOf,
   TOTAL_CHARACTER_LIMIT,
   totalPopulation,
@@ -16,7 +17,9 @@ import type { CharacterProfile, StoryEvent, World } from "@/types";
 
 interface HeaderProps {
   worlds: World[];
-  currentWorld: World;
+  currentWorld: World | null;
+  viewingGuide: boolean;
+  onOpenGuide: () => void;
   worldPopulation: WorldPopulation;
   onSelectWorld: (id: string) => void;
   /** 현재 세계의 캐릭터만 */
@@ -80,10 +83,16 @@ function AiChip({
 function WorldSwitcher({
   worlds,
   currentWorld,
+  viewingGuide,
+  onOpenGuide,
   worldPopulation,
   onSelectWorld,
-}: Pick<HeaderProps, "worlds" | "currentWorld" | "worldPopulation" | "onSelectWorld">) {
+}: Pick<
+  HeaderProps,
+  "worlds" | "currentWorld" | "viewingGuide" | "onOpenGuide" | "worldPopulation" | "onSelectWorld"
+>) {
   const [open, setOpen] = useState(false);
+  const label = viewingGuide ? GUIDE_WORLD.name : (currentWorld?.name ?? "세계 없음");
 
   return (
     <div className="relative min-w-0">
@@ -95,7 +104,7 @@ function WorldSwitcher({
         aria-expanded={open}
         title="세계 바꾸기"
       >
-        <span className="truncate">{currentWorld.name}</span>
+        <span className="truncate">{label}</span>
         <ChevronDown className={`h-3 w-3 shrink-0 text-[var(--muted)] transition ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
@@ -111,8 +120,30 @@ function WorldSwitcher({
             aria-label="세계 선택"
             className="absolute left-0 top-full z-40 mt-1.5 max-h-72 w-60 overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-1.5 shadow-lg"
           >
+            <li>
+              <button
+                type="button"
+                role="option"
+                aria-selected={viewingGuide}
+                onClick={() => {
+                  onOpenGuide();
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-xs transition ${
+                  viewingGuide ? "bg-[var(--accent-soft)]/60" : "hover:bg-[var(--wash)]"
+                }`}
+              >
+                <span className="text-base">{GUIDE_WORLD.emoji}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-[var(--ink)]">{GUIDE_WORLD.name}</span>
+                  <span className="block text-[10px] text-[var(--muted)]">가이드 · 읽기 전용</span>
+                </span>
+                {viewingGuide && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />}
+              </button>
+            </li>
+            {worlds.length > 0 && <li className="mx-2 my-1 border-t border-[var(--line)]" />}
             {worlds.map((w) => {
-              const active = w.id === currentWorld.id;
+              const active = !viewingGuide && w.id === currentWorld?.id;
               return (
                 <li key={w.id}>
                   <button
@@ -150,6 +181,8 @@ function WorldSwitcher({
 export default function Header({
   worlds,
   currentWorld,
+  viewingGuide,
+  onOpenGuide,
   worldPopulation,
   onSelectWorld,
   characters,
@@ -184,6 +217,8 @@ export default function Header({
             <WorldSwitcher
               worlds={worlds}
               currentWorld={currentWorld}
+              viewingGuide={viewingGuide}
+              onOpenGuide={onOpenGuide}
               worldPopulation={worldPopulation}
               onSelectWorld={onSelectWorld}
             />
@@ -254,7 +289,11 @@ export default function Header({
               </div>
             ) : (
               <p className="text-xs text-[var(--muted)]">
-                {currentWorld.emoji} {currentWorld.name}에는 아직 아무도 살지 않아요.
+                {viewingGuide
+                  ? "가이드 세계예요. 캐릭터는 직접 만든 세계에서 살아요."
+                  : currentWorld
+                    ? `${currentWorld.emoji} ${currentWorld.name}에는 아직 아무도 살지 않아요.`
+                    : "아직 세계가 없어요. 세계를 만든 뒤 캐릭터를 데려오세요."}
               </p>
             )}
 

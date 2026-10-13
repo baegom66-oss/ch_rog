@@ -15,6 +15,7 @@ import { useState } from "react";
 import CharacterAvatar from "@/components/CharacterAvatar";
 import FacilitySection from "@/components/FacilitySection";
 import FieldHint from "@/components/FieldHint";
+import GuideWorldView from "@/components/GuideWorldView";
 import { inputClass } from "@/components/ProfileFields";
 import {
   OfflineFrequencyOptions,
@@ -23,6 +24,7 @@ import {
 import {
   charactersInWorld,
   DEFAULT_WORLD_LORE,
+  GUIDE_WORLD,
   isTotalCharacterFull,
   TOTAL_CHARACTER_LIMIT,
   WORLD_CHARACTER_LIMIT,
@@ -40,7 +42,10 @@ import type {
 
 interface WorldTabProps {
   worlds: World[];
-  currentWorld: World;
+  currentWorld: World | null;
+  /** 가이드 세계(현대 한국)를 보고 있는 중 */
+  viewingGuide: boolean;
+  onOpenGuide: () => void;
   characters: CharacterProfile[];
   facilities: Facility[];
   onSelectWorld: (id: string) => void;
@@ -379,6 +384,8 @@ function TimelineSettingsCard({
 export default function WorldTab({
   worlds,
   currentWorld,
+  viewingGuide,
+  onOpenGuide,
   characters,
   facilities,
   onSelectWorld,
@@ -394,7 +401,7 @@ export default function WorldTab({
 }: WorldTabProps) {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
-  const residents = charactersInWorld(characters, currentWorld.id);
+  const residents = currentWorld ? charactersInWorld(characters, currentWorld.id) : [];
   const worldsFull = worlds.length >= WORLD_LIMIT;
   const totalFull = isTotalCharacterFull(characters);
 
@@ -406,14 +413,12 @@ export default function WorldTab({
   };
 
   const deleteWorld = () => {
-    if (residents.length > 0) return;
-    if (
-      window.confirm(
-        `'${currentWorld.name}' 세계를 삭제할까요?\n이 세계의 시설과 이벤트도 함께 사라집니다.`
-      )
-    ) {
-      onDeleteWorld(currentWorld.id);
-    }
+    if (!currentWorld || residents.length > 0) return;
+    const last = worlds.length === 1;
+    const message = last
+      ? `'${currentWorld.name}' 세계를 삭제할까요?\n시설과 이벤트도 함께 사라지고, 세계가 없는 상태로 돌아갑니다.`
+      : `'${currentWorld.name}' 세계를 삭제할까요?\n이 세계의 시설과 이벤트도 함께 사라집니다.`;
+    if (window.confirm(message)) onDeleteWorld(currentWorld.id);
   };
 
   return (
@@ -425,7 +430,7 @@ export default function WorldTab({
             세계
           </h2>
           <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-            캐릭터들이 살아가는 곳. 세계마다 장소와 시간의 흐름이 달라요.
+            캐릭터들이 살아가는 곳. 세계는 직접 만들고, 현대 한국은 가이드로만 볼 수 있어요.
           </p>
           <p className="mt-1 text-[10.5px] tabular-nums text-[var(--muted)]">
             세계{" "}
@@ -480,8 +485,27 @@ export default function WorldTab({
       )}
 
       <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4" role="tablist" aria-label="세계 선택">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewingGuide}
+          onClick={onOpenGuide}
+          className={`flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-left transition ${
+            viewingGuide
+              ? "border-[var(--accent)] bg-[var(--accent)] text-white"
+              : "border-dashed border-[var(--line)] bg-[var(--paper)] text-[var(--ink)] hover:bg-[var(--wash)]"
+          }`}
+        >
+          <span className="text-lg">{GUIDE_WORLD.emoji}</span>
+          <span className="min-w-0">
+            <span className="block max-w-[8rem] truncate text-[12px] font-semibold">{GUIDE_WORLD.name}</span>
+            <span className={`block text-[10px] ${viewingGuide ? "text-white/70" : "text-[var(--muted)]"}`}>
+              가이드
+            </span>
+          </span>
+        </button>
         {worlds.map((w) => {
-          const active = w.id === currentWorld.id;
+          const active = !viewingGuide && w.id === currentWorld?.id;
           const count = charactersInWorld(characters, w.id).length;
           return (
             <button
@@ -509,44 +533,61 @@ export default function WorldTab({
         })}
       </div>
 
-      <WorldInfoCard
-        key={`info-${currentWorld.id}`}
-        world={currentWorld}
-        onSave={(patch) => onUpdateWorld(currentWorld.id, patch)}
-      />
+      {viewingGuide && <GuideWorldView />}
 
-      <ResidentsCard
-        residents={residents}
-        totalFull={totalFull}
-        onAdd={onOpenAddCharacter}
-        onOpen={onOpenCharacter}
-      />
+      {!viewingGuide && !currentWorld && (
+        <div className="rounded-2xl border border-dashed border-[var(--line)] bg-[var(--paper)] px-4 py-8 text-center">
+          <p className="text-sm font-medium text-[var(--ink)]">아직 만든 세계가 없어요</p>
+          <p className="mt-1 text-[12px] leading-5 text-[var(--muted)]">
+            위에서 세계 이름을 정해 만들거나, 현대 한국 가이드를 먼저 볼 수 있어요.
+          </p>
+        </div>
+      )}
 
-      <KeptWishesCard
-        key={`wishes-${currentWorld.id}`}
-        residents={residents}
-        onOpen={onOpenCharacter}
-        onFulfill={onFulfillWish}
-      />
+      {!viewingGuide && currentWorld && (
+        <WorldInfoCard
+          key={`info-${currentWorld.id}`}
+          world={currentWorld}
+          onSave={(patch) => onUpdateWorld(currentWorld.id, patch)}
+        />
+      )}
 
-      <TimelineSettingsCard
-        key={`timeline-${currentWorld.id}`}
-        world={currentWorld}
-        worldCount={worlds.length}
-        onChange={(patch) =>
-          onUpdateWorld(currentWorld.id, { timeline: { ...currentWorld.timeline, ...patch } })
-        }
-        onApplyToAll={() => onApplyTimelineToAll(currentWorld.timeline)}
-      />
+      {!viewingGuide && currentWorld && (
+        <>
+          <ResidentsCard
+            residents={residents}
+            totalFull={totalFull}
+            onAdd={onOpenAddCharacter}
+            onOpen={onOpenCharacter}
+          />
 
-      <FacilitySection
-        key={`facility-${currentWorld.id}`}
-        facilities={facilities.filter((f) => f.worldId === currentWorld.id)}
-        onAdd={(facility) => onAddFacility({ ...facility, worldId: currentWorld.id })}
-        onUpdate={onUpdateFacility}
-      />
+          <KeptWishesCard
+            key={`wishes-${currentWorld.id}`}
+            residents={residents}
+            onOpen={onOpenCharacter}
+            onFulfill={onFulfillWish}
+          />
 
-      {worlds.length > 1 && (
+          <TimelineSettingsCard
+            key={`timeline-${currentWorld.id}`}
+            world={currentWorld}
+            worldCount={worlds.length}
+            onChange={(patch) =>
+              onUpdateWorld(currentWorld.id, { timeline: { ...currentWorld.timeline, ...patch } })
+            }
+            onApplyToAll={() => onApplyTimelineToAll(currentWorld.timeline)}
+          />
+
+          <FacilitySection
+            key={`facility-${currentWorld.id}`}
+            facilities={facilities.filter((f) => f.worldId === currentWorld.id)}
+            onAdd={(facility) => onAddFacility({ ...facility, worldId: currentWorld.id })}
+            onUpdate={onUpdateFacility}
+          />
+        </>
+      )}
+
+      {!viewingGuide && currentWorld && (
         <div className="border-t border-[var(--line)] pt-4">
           <button
             type="button"
@@ -559,7 +600,7 @@ export default function WorldTab({
           </button>
           {residents.length > 0 && (
             <p className="mt-1 px-2 text-[10.5px] text-[var(--muted)]">
-              캐릭터가 사는 세계는 삭제할 수 없어요. 캐릭터 탭에서 다른 세계로 옮긴 뒤 삭제해 주세요.
+              캐릭터가 사는 세계는 삭제할 수 없어요. 캐릭터를 다른 세계로 옮기거나 삭제한 뒤 지울 수 있어요.
             </p>
           )}
         </div>

@@ -38,7 +38,8 @@ function sharedValue<K extends keyof WorldTimelineSettings>(
   worlds: World[],
   key: K
 ): WorldTimelineSettings[K] | null {
-  const first = worlds[0]?.timeline[key];
+  if (worlds.length === 0) return null;
+  const first = worlds[0].timeline[key];
   return worlds.every((w) => w.timeline[key] === first) ? first : null;
 }
 
@@ -87,8 +88,14 @@ export default function SettingsPanel({
         <div className="flex gap-2 rounded-xl border border-dashed border-[var(--accent)]/35 bg-[var(--accent-soft)]/50 px-3 py-2.5">
           <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />
           <p className="text-[11px] leading-5 text-[var(--ink)]/85">
-            여기서 바꾸는 배속·오프라인 생성은 <b>모든 세계({worlds.length}개)에 한 번에</b>{" "}
-            적용돼요. 세계마다 다르게 하려면 세계 탭에서 각각 설정하세요.
+            {worlds.length === 0 ? (
+              <>세계를 만든 뒤에 배속과 오프라인 생성을 맞출 수 있어요.</>
+            ) : (
+              <>
+                여기서 바꾸는 배속·오프라인 생성은 <b>모든 세계({worlds.length}개)에 한 번에</b>{" "}
+                적용돼요. 세계마다 다르게 하려면 세계 탭에서 각각 설정하세요.
+              </>
+            )}
           </p>
         </div>
 
